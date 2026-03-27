@@ -12,6 +12,7 @@
 		1E8AC12AF934A9E2AF3EE135 /* Place.swift in Sources */ = {isa = PBXBuildFile; fileRef = 93164504E282D88889FC4829 /* Place.swift */; };
 		230254735C726C149D146804 /* PlaceNotesApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B7230CD66A02224B82BC6707 /* PlaceNotesApp.swift */; };
 		2DF905E0E548F1BB7C01D37C /* TrackingViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98000E46B51D457FEBDDC26C /* TrackingViewModel.swift */; };
+		4133F279AED784CDE48B1CBC /* PlaceCategorizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = DE19D5462D6E110941ED3C60 /* PlaceCategorizer.swift */; };
 		461FCC2CB7B62DD86415869B /* Visit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 017C923FF1E94C23F4259EBF /* Visit.swift */; };
 		77D965A91B2B985AE18351C7 /* TrackingState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 680B87EF5F6FE75F80CFB62C /* TrackingState.swift */; };
 		78004E4F4505264F6D3F3096 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9523AC78443EF3503219C574 /* ContentView.swift */; };
@@ -26,6 +27,7 @@
 		D1F207E36F8AE661B30C32FF /* FrequentPlacesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4981FAEAD9D47BEEBE43747 /* FrequentPlacesView.swift */; };
 		D5996AE3FCFD0BE3AB1B3971 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 56A0BCF4D47A94B15CD81016 /* AppSettings.swift */; };
 		E81DE4EDE188CC2FAC039355 /* ReportGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 983EE1172C570F40450C1037 /* ReportGenerator.swift */; };
+		E8A7B86EDD0894F2274EE5BB /* MockLocationProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3E2D427C4B94257A5394EBD6 /* MockLocationProvider.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,9 +35,10 @@
 		1854DAFDD7090503E1E9F021 /* FrequentPlacesMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrequentPlacesMapView.swift; sourceTree = "<group>"; };
 		18A100F6EC7AC85F5E35A893 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		1E1C60A3FA5C4BD762539403 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
+		3E2D427C4B94257A5394EBD6 /* MockLocationProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MockLocationProvider.swift; sourceTree = "<group>"; };
 		3EEF317FAF8718A274DAA730 /* PlaceNotes.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PlaceNotes.entitlements; sourceTree = "<group>"; };
 		4288B0588E7EF4BEADBA9217 /* ReportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReportView.swift; sourceTree = "<group>"; };
-		4CEE6366B3C791FDEE9854AD /* PlaceNotes.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PlaceNotes.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4CEE6366B3C791FDEE9854AD /* PlaceNotes.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = PlaceNotes.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		56A0BCF4D47A94B15CD81016 /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		60FCC6F85D494291768E44B5 /* TrackingManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingManager.swift; sourceTree = "<group>"; };
 		680B87EF5F6FE75F80CFB62C /* TrackingState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackingState.swift; sourceTree = "<group>"; };
@@ -51,6 +54,7 @@
 		B7230CD66A02224B82BC6707 /* PlaceNotesApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceNotesApp.swift; sourceTree = "<group>"; };
 		D059ECE57755E006F6C4B02E /* PlacesViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlacesViewModel.swift; sourceTree = "<group>"; };
 		D4981FAEAD9D47BEEBE43747 /* FrequentPlacesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FrequentPlacesView.swift; sourceTree = "<group>"; };
+		DE19D5462D6E110941ED3C60 /* PlaceCategorizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaceCategorizer.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -68,7 +72,9 @@
 			isa = PBXGroup;
 			children = (
 				1E1C60A3FA5C4BD762539403 /* LocationManager.swift */,
+				3E2D427C4B94257A5394EBD6 /* MockLocationProvider.swift */,
 				873EAA304CCB57BCEE506E9D /* NotificationManager.swift */,
+				DE19D5462D6E110941ED3C60 /* PlaceCategorizer.swift */,
 				983EE1172C570F40450C1037 /* ReportGenerator.swift */,
 				60FCC6F85D494291768E44B5 /* TrackingManager.swift */,
 			);
@@ -158,7 +164,9 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2630;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+				};
 			};
 			buildConfigurationList = CFA25DC04787B43912192604 /* Build configuration list for PBXProject "PlaceNotes" */;
 			developmentRegion = en;
@@ -200,8 +208,10 @@
 				B58B0B911225FC0AD9609D96 /* FrequentPlacesMapView.swift in Sources */,
 				D1F207E36F8AE661B30C32FF /* FrequentPlacesView.swift in Sources */,
 				7BA4FB3261BD166CE07A796F /* LocationManager.swift in Sources */,
+				E8A7B86EDD0894F2274EE5BB /* MockLocationProvider.swift in Sources */,
 				98E4E74C8329DE5738174B8C /* NotificationManager.swift in Sources */,
 				1E8AC12AF934A9E2AF3EE135 /* Place.swift in Sources */,
+				4133F279AED784CDE48B1CBC /* PlaceCategorizer.swift in Sources */,
 				230254735C726C149D146804 /* PlaceNotesApp.swift in Sources */,
 				17C313E7A207D5DAAB7589CE /* PlacesViewModel.swift in Sources */,
 				E81DE4EDE188CC2FAC039355 /* ReportGenerator.swift in Sources */,
@@ -256,7 +266,6 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -270,7 +279,6 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.9;
@@ -353,7 +361,6 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -374,7 +381,6 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.9;

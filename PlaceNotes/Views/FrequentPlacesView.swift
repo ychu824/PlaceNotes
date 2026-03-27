@@ -50,6 +50,11 @@ struct PlaceRankingRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            Image(systemName: PlaceCategorizer.icon(for: ranking.place.category))
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 28)
+
             VStack(alignment: .leading, spacing: 4) {
                 Text(ranking.place.name)
                     .font(.body.weight(.medium))
