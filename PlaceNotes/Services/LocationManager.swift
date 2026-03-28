@@ -79,7 +79,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         }
 
         let name = await reverseGeocode(latitude: latitude, longitude: longitude)
-        let place = Place(name: name, latitude: latitude, longitude: longitude)
+        let categoryResult = await PlaceCategorizer.categorize(latitude: latitude, longitude: longitude)
+        let place = Place(name: name, latitude: latitude, longitude: longitude, category: categoryResult?.label)
         context.insert(place)
         return place
     }

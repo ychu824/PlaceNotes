@@ -35,7 +35,7 @@ struct PlaceAnnotationView: View {
 
     var body: some View {
         VStack(spacing: 2) {
-            Image(systemName: "mappin.circle.fill")
+            Image(systemName: PlaceCategorizer.icon(for: ranking.place.category))
                 .font(.title)
                 .foregroundStyle(.red)
 
@@ -58,7 +58,7 @@ struct PlaceDetailSheet: View {
                 .font(.title2.bold())
 
             if let category = place.category {
-                Text(category)
+                Label(category, systemImage: PlaceCategorizer.icon(for: category))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
