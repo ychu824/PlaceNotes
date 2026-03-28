@@ -20,6 +20,7 @@ struct PlaceNotesApp: App {
         WindowGroup {
             ContentView()
                 .environmentObject(settings)
+                .environmentObject(locationManager)
                 .environmentObject(makeTrackingViewModel())
                 .onAppear {
                     NotificationManager.shared.requestAuthorization()

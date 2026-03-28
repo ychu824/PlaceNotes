@@ -20,10 +20,15 @@ final class TrackingManager: ObservableObject {
 
     func enableTracking() {
         locationManager.requestAuthorization()
-        state.status = .active
-        state.pauseResumeDate = nil
-        locationManager.startMonitoring()
-        persist()
+
+        // Small delay to let the authorization dialog complete
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self else { return }
+            self.state.status = .active
+            self.state.pauseResumeDate = nil
+            self.locationManager.startMonitoring()
+            self.persist()
+        }
     }
 
     func disableTracking() {
