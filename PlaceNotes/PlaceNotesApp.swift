@@ -4,7 +4,7 @@ import SwiftData
 @main
 struct PlaceNotesApp: App {
     @StateObject private var settings = AppSettings.shared
-    @StateObject private var locationManager = LocationManager()
+    @StateObject private var locationManager = LocationManager(settings: .shared)
 
     let modelContainer: ModelContainer
 

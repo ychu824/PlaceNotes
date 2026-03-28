@@ -21,14 +21,20 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private var dwellStartDate: Date?
     private var lastRecordedDwellLocation: CLLocation?
     private var dwellTimer: Timer?
+    private let settings: AppSettings
 
     /// Distance (meters) the user must move before we consider them "left".
     private let dwellRadiusMeters: Double = 80
 
     /// Seconds the user must remain stationary to trigger a dwell visit.
-    private let dwellThresholdSeconds: TimeInterval = 300 // 5 minutes
+    /// Reads from AppSettings.minStayMinutes so the user's configured threshold
+    /// controls both report qualification AND dwell detection.
+    private var dwellThresholdSeconds: TimeInterval {
+        TimeInterval(settings.minStayMinutes * 60)
+    }
 
-    override init() {
+    init(settings: AppSettings = .shared) {
+        self.settings = settings
         super.init()
         clManager.delegate = self
         clManager.allowsBackgroundLocationUpdates = true
@@ -36,7 +42,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         clManager.desiredAccuracy = kCLLocationAccuracyBest
         clManager.distanceFilter = kCLDistanceFilterNone
         authorizationStatus = clManager.authorizationStatus
-        logger.info("LocationManager initialized, auth status: \(self.authorizationStatus.rawValue)")
+        logger.info("LocationManager initialized, auth status: \(self.authorizationStatus.rawValue), minStay: \(settings.minStayMinutes)min")
     }
 
     func configure(modelContext: ModelContext) {
@@ -93,12 +99,13 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         let elapsed = Date().timeIntervalSince(start)
         logger.info("Dwell timer tick — dwelling for \(Int(elapsed))s at (\(dwellLoc.coordinate.latitude), \(dwellLoc.coordinate.longitude))")
 
-        if elapsed >= dwellThresholdSeconds {
-            logger.notice("Dwell threshold reached (\(Int(elapsed))s >= \(Int(self.dwellThresholdSeconds))s) — recording visit")
+        let threshold = dwellThresholdSeconds
+        if elapsed >= threshold {
+            logger.notice("Dwell threshold reached (\(Int(elapsed))s >= \(Int(threshold))s from minStay=\(self.settings.minStayMinutes)min) — recording visit")
             recordDwellVisit(at: dwellLoc, arrival: start, context: modelContext)
         } else {
-            let remaining = Int(dwellThresholdSeconds - elapsed)
-            logger.info("Dwell threshold not yet met — \(remaining)s remaining")
+            let remaining = Int(threshold - elapsed)
+            logger.info("Dwell threshold not yet met — \(remaining)s remaining (threshold=\(Int(threshold))s from minStay=\(self.settings.minStayMinutes)min)")
         }
     }
 
