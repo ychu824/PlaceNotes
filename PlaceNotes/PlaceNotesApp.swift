@@ -27,6 +27,8 @@ struct PlaceNotesApp: App {
 
                     #if DEBUG
                     MockLocationProvider.seedIfNeeded(context: modelContainer.mainContext)
+                    #else
+                    MockLocationProvider.purgeIfNeeded(context: modelContainer.mainContext)
                     #endif
                 }
         }

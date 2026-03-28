@@ -1,10 +1,16 @@
 import Foundation
 import SwiftData
 
-#if DEBUG
-/// Provides simulated location visits for debug builds.
-/// Generates sample places and visits so you can test the UI without moving around.
+/// Provides simulated location visits for debug builds and
+/// cleans up mock data when switching to release.
 final class MockLocationProvider {
+
+    private static let seededKey = "mockDataSeeded"
+
+    /// Whether mock data has been seeded into the current database.
+    static var hasSeededData: Bool {
+        UserDefaults.standard.bool(forKey: seededKey)
+    }
 
     struct MockPlace {
         let name: String
@@ -25,8 +31,11 @@ final class MockLocationProvider {
     ]
 
     /// Seeds the database with sample places and visits spread over the past 30 days.
+    /// Only runs once per install and only in DEBUG builds.
     @MainActor
     static func seedIfNeeded(context: ModelContext) {
+        guard !hasSeededData else { return }
+
         let descriptor = FetchDescriptor<Place>()
         let existingCount = (try? context.fetchCount(descriptor)) ?? 0
         guard existingCount == 0 else { return }
@@ -45,7 +54,7 @@ final class MockLocationProvider {
 
             // Generate random visits over the past 30 days
             let visitCount = Int.random(in: 3...15)
-            for i in 0..<visitCount {
+            for _ in 0..<visitCount {
                 let daysAgo = Int.random(in: 0...29)
                 let hour = Int.random(in: 6...22)
                 let minute = Int.random(in: 0...59)
@@ -65,7 +74,28 @@ final class MockLocationProvider {
         }
 
         try? context.save()
+        UserDefaults.standard.set(true, forKey: seededKey)
         print("[MockLocationProvider] Seeded \(samplePlaces.count) places with sample visits")
     }
+
+    /// Removes all mock-seeded data from the database.
+    /// Call this in release builds to clean up leftover debug data.
+    @MainActor
+    static func purgeIfNeeded(context: ModelContext) {
+        guard hasSeededData else { return }
+
+        let visitDescriptor = FetchDescriptor<Visit>()
+        let placeDescriptor = FetchDescriptor<Place>()
+
+        if let visits = try? context.fetch(visitDescriptor) {
+            for visit in visits { context.delete(visit) }
+        }
+        if let places = try? context.fetch(placeDescriptor) {
+            for place in places { context.delete(place) }
+        }
+
+        try? context.save()
+        UserDefaults.standard.set(false, forKey: seededKey)
+        print("[MockLocationProvider] Purged mock data for release build")
+    }
 }
-#endif
