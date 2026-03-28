@@ -1,6 +1,9 @@
 import Foundation
 import CoreLocation
 import SwiftData
+import os
+
+private let logger = Logger(subsystem: "com.placenotes.app", category: "LocationManager")
 
 final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let clManager = CLLocationManager()
@@ -13,12 +16,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     var onVisitRecorded: ((Visit) -> Void)?
 
     // MARK: - Dwell detection
-    // Tracks when the user stays near the same spot to create a visit,
-    // since CLVisit can be delayed by hours or skip short stays entirely.
 
     private var dwellLocation: CLLocation?
     private var dwellStartDate: Date?
     private var lastRecordedDwellLocation: CLLocation?
+    private var dwellTimer: Timer?
 
     /// Distance (meters) the user must move before we consider them "left".
     private let dwellRadiusMeters: Double = 80
@@ -31,52 +33,110 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         clManager.delegate = self
         clManager.allowsBackgroundLocationUpdates = true
         clManager.pausesLocationUpdatesAutomatically = false
-        clManager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-        clManager.distanceFilter = 50
+        clManager.desiredAccuracy = kCLLocationAccuracyBest
+        clManager.distanceFilter = kCLDistanceFilterNone
         authorizationStatus = clManager.authorizationStatus
+        logger.info("LocationManager initialized, auth status: \(self.authorizationStatus.rawValue)")
     }
 
     func configure(modelContext: ModelContext) {
         self.modelContext = modelContext
+        logger.info("ModelContext configured")
     }
 
     func requestAuthorization() {
+        logger.info("Requesting always authorization")
         clManager.requestAlwaysAuthorization()
     }
 
     func startMonitoring() {
+        logger.notice(">>> Starting all monitoring <<<")
         clManager.startMonitoringVisits()
         clManager.startMonitoringSignificantLocationChanges()
         clManager.startUpdatingLocation()
-        print("[LocationManager] Started monitoring: visits + significant changes + location updates")
+        startDwellTimer()
+        logger.notice("Monitoring started: visits + significant changes + location updates + dwell timer")
     }
 
     func stopMonitoring() {
+        logger.notice(">>> Stopping all monitoring <<<")
         clManager.stopMonitoringVisits()
         clManager.stopMonitoringSignificantLocationChanges()
         clManager.stopUpdatingLocation()
+        dwellTimer?.invalidate()
+        dwellTimer = nil
         finalizeDwell()
-        print("[LocationManager] Stopped all monitoring")
+        logger.notice("All monitoring stopped")
+    }
+
+    // MARK: - Dwell Timer
+    // Since the simulator (and stationary real devices) may not fire
+    // didUpdateLocations frequently enough, we use a periodic timer
+    // to check dwell status independently.
+
+    private func startDwellTimer() {
+        dwellTimer?.invalidate()
+        dwellTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            self?.checkDwellStatus()
+        }
+        logger.debug("Dwell timer started (30s interval)")
+    }
+
+    private func checkDwellStatus() {
+        guard let dwellLoc = dwellLocation,
+              let start = dwellStartDate,
+              let modelContext else {
+            logger.debug("Dwell timer tick — no active dwell location")
+            return
+        }
+
+        let elapsed = Date().timeIntervalSince(start)
+        logger.info("Dwell timer tick — dwelling for \(Int(elapsed))s at (\(dwellLoc.coordinate.latitude), \(dwellLoc.coordinate.longitude))")
+
+        if elapsed >= dwellThresholdSeconds {
+            logger.notice("Dwell threshold reached (\(Int(elapsed))s >= \(Int(self.dwellThresholdSeconds))s) — recording visit")
+            recordDwellVisit(at: dwellLoc, arrival: start, context: modelContext)
+        } else {
+            let remaining = Int(dwellThresholdSeconds - elapsed)
+            logger.info("Dwell threshold not yet met — \(remaining)s remaining")
+        }
     }
 
     // MARK: - CLLocationManagerDelegate
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let old = authorizationStatus
         authorizationStatus = manager.authorizationStatus
-        if manager.authorizationStatus == .authorizedAlways ||
-           manager.authorizationStatus == .authorizedWhenInUse {
-            print("[LocationManager] Authorization granted: \(manager.authorizationStatus.rawValue)")
+        logger.notice("Authorization changed: \(old.rawValue) -> \(manager.authorizationStatus.rawValue)")
+
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            logger.warning("Authorization: not determined")
+        case .restricted:
+            logger.error("Authorization: restricted")
+        case .denied:
+            logger.error("Authorization: denied — location tracking will not work")
+        case .authorizedWhenInUse:
+            logger.notice("Authorization: when in use (consider requesting Always for background tracking)")
+        case .authorizedAlways:
+            logger.notice("Authorization: always — full background tracking enabled")
+        @unknown default:
+            logger.warning("Authorization: unknown value \(manager.authorizationStatus.rawValue)")
         }
     }
 
-    /// Called by CLVisit monitoring — the gold standard, but can be delayed.
     func locationManager(_ manager: CLLocationManager, didVisit clVisit: CLVisit) {
-        guard let modelContext else { return }
+        logger.notice("CLVisit received: (\(clVisit.coordinate.latitude), \(clVisit.coordinate.longitude))")
+        logger.info("  arrival: \(clVisit.arrivalDate)")
+        logger.info("  departure: \(clVisit.departureDate == .distantFuture ? "still here" : "\(clVisit.departureDate)")")
+
+        guard let modelContext else {
+            logger.error("CLVisit ignored — modelContext is nil")
+            return
+        }
 
         let arrival = clVisit.arrivalDate
         let departure = clVisit.departureDate == .distantFuture ? nil : clVisit.departureDate
-
-        print("[LocationManager] CLVisit received: \(clVisit.coordinate.latitude), \(clVisit.coordinate.longitude)")
 
         Task { @MainActor in
             let place = await findOrCreatePlace(
@@ -85,9 +145,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
                 in: modelContext
             )
 
-            // Avoid duplicating a dwell-detected visit at the same place/time
             if isDuplicate(place: place, arrival: arrival) {
-                print("[LocationManager] Skipping duplicate CLVisit for \(place.name)")
+                logger.info("Skipping duplicate CLVisit for \(place.name)")
                 return
             }
 
@@ -97,57 +156,69 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
             currentVisit = visit
             onVisitRecorded?(visit)
-            print("[LocationManager] Recorded CLVisit at \(place.name)")
+            logger.notice("Recorded CLVisit at \(place.name)")
         }
     }
 
-    /// Called by significant location changes AND periodic location updates.
-    /// Used for dwell detection — if the user stays in the same area for
-    /// `dwellThresholdSeconds`, we record a visit immediately instead of
-    /// waiting for CLVisit (which can take hours).
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last, let modelContext else { return }
+        guard let location = locations.last else {
+            logger.debug("didUpdateLocations called with empty array")
+            return
+        }
+
+        logger.debug("Location update: (\(location.coordinate.latitude), \(location.coordinate.longitude)) accuracy: \(location.horizontalAccuracy)m")
+
+        guard let modelContext else {
+            logger.error("Location update ignored — modelContext is nil")
+            return
+        }
 
         userLocation = location.coordinate
 
-        // Start or update dwell tracking
         if let dwellLoc = dwellLocation {
             let distance = location.distance(from: dwellLoc)
+            let elapsed = dwellStartDate.map { Int(Date().timeIntervalSince($0)) } ?? 0
 
             if distance < dwellRadiusMeters {
-                // Still near the same spot — check if dwell threshold met
+                logger.debug("Still within dwell radius (\(Int(distance))m < \(Int(self.dwellRadiusMeters))m), elapsed: \(elapsed)s")
+
                 if let start = dwellStartDate,
                    Date().timeIntervalSince(start) >= dwellThresholdSeconds {
-                    // Record a dwell visit
+                    logger.notice("Dwell threshold met via location update — recording visit")
                     recordDwellVisit(at: dwellLoc, arrival: start, context: modelContext)
                 }
             } else {
-                // Moved away — finalize previous dwell and start new one
+                logger.info("Moved outside dwell radius (\(Int(distance))m >= \(Int(self.dwellRadiusMeters))m) — resetting dwell")
                 finalizeDwell()
                 dwellLocation = location
                 dwellStartDate = Date()
+                logger.info("New dwell started at (\(location.coordinate.latitude), \(location.coordinate.longitude))")
             }
         } else {
-            // First location update — start tracking
             dwellLocation = location
             dwellStartDate = Date()
+            logger.info("First location — dwell started at (\(location.coordinate.latitude), \(location.coordinate.longitude))")
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-        print("[LocationManager] Error: \(error.localizedDescription)")
+        logger.error("Location error: \(error.localizedDescription)")
+        if let clError = error as? CLError {
+            logger.error("CLError code: \(clError.code.rawValue)")
+        }
     }
 
     // MARK: - Dwell Visit Recording
 
     private func recordDwellVisit(at location: CLLocation, arrival: Date, context: ModelContext) {
-        // Don't re-record the same dwell
         if let lastDwell = lastRecordedDwellLocation,
            location.distance(from: lastDwell) < dwellRadiusMeters {
+            logger.debug("Dwell already recorded at this location — skipping")
             return
         }
 
         lastRecordedDwellLocation = location
+        logger.notice("Recording dwell visit at (\(location.coordinate.latitude), \(location.coordinate.longitude)), arrived: \(arrival)")
 
         Task { @MainActor in
             let place = await findOrCreatePlace(
@@ -157,7 +228,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             )
 
             if isDuplicate(place: place, arrival: arrival) {
-                print("[LocationManager] Skipping duplicate dwell visit for \(place.name)")
+                logger.info("Skipping duplicate dwell visit for \(place.name)")
                 return
             }
 
@@ -167,11 +238,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
             currentVisit = visit
             onVisitRecorded?(visit)
-            print("[LocationManager] Recorded dwell visit at \(place.name) (stayed \(Int(Date().timeIntervalSince(arrival)/60)) min)")
+            let stayMinutes = Int(Date().timeIntervalSince(arrival) / 60)
+            logger.notice("VISIT RECORDED: \(place.name) (category: \(place.category ?? "none"), stayed \(stayMinutes) min)")
         }
     }
 
-    /// Finalizes the current dwell by setting departure on the active visit.
     private func finalizeDwell() {
         guard let dwellLoc = dwellLocation,
               let modelContext else {
@@ -180,7 +251,6 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             return
         }
 
-        // Update departure time on the last visit at this location
         Task { @MainActor in
             let descriptor = FetchDescriptor<Visit>(
                 predicate: #Predicate { $0.departureDate == nil },
@@ -192,7 +262,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
                 if dwellLoc.distance(from: placeLocation) < dwellRadiusMeters {
                     activeVisit.departureDate = Date()
                     try? modelContext.save()
-                    print("[LocationManager] Finalized departure for \(place.name)")
+                    logger.notice("Finalized departure for \(place.name)")
                 }
             }
         }
@@ -206,12 +276,14 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
     @MainActor
     private func isDuplicate(place: Place, arrival: Date) -> Bool {
-        // Consider it a duplicate if there's a visit to the same place
-        // within 10 minutes of the same arrival time
         let threshold: TimeInterval = 600
-        return place.visits.contains { visit in
+        let isDup = place.visits.contains { visit in
             abs(visit.arrivalDate.timeIntervalSince(arrival)) < threshold
         }
+        if isDup {
+            logger.debug("Duplicate detected for \(place.name) near \(arrival)")
+        }
+        return isDup
     }
 
     // MARK: - Place Resolution
@@ -226,13 +298,16 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         if let existing = allPlaces.first(where: {
             abs($0.latitude - latitude) < threshold && abs($0.longitude - longitude) < threshold
         }) {
+            logger.debug("Found existing place: \(existing.name)")
             return existing
         }
 
+        logger.info("No existing place within \(threshold) degrees — creating new place")
         let name = await reverseGeocode(latitude: latitude, longitude: longitude)
         let categoryResult = await PlaceCategorizer.categorize(latitude: latitude, longitude: longitude)
         let place = Place(name: name, latitude: latitude, longitude: longitude, category: categoryResult?.label)
         context.insert(place)
+        logger.notice("Created new place: \(name) (category: \(categoryResult?.label ?? "none"))")
         return place
     }
 
@@ -243,14 +318,16 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         do {
             let placemarks = try await geocoder.reverseGeocodeLocation(location)
             if let placemark = placemarks.first {
-                return placemark.name
+                let name = placemark.name
                     ?? placemark.thoroughfare
                     ?? placemark.subLocality
                     ?? placemark.locality
                     ?? "Unknown Place"
+                logger.debug("Reverse geocoded (\(latitude), \(longitude)) -> \(name)")
+                return name
             }
         } catch {
-            print("Geocoding failed: \(error.localizedDescription)")
+            logger.error("Geocoding failed: \(error.localizedDescription)")
         }
         return "Unknown Place"
     }
