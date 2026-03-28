@@ -7,6 +7,11 @@ xcuserdata/
 *.xcuserstate
 *.xcscmblueprint
 *.xccheckout
+*.xcodeproj/xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Generated Xcode project (regenerate with `xcodegen`)
+PlaceNotes.xcodeproj/
 
 # Swift Package Manager
 .build/
@@ -20,6 +25,7 @@ Pods/
 .DS_Store
 .AppleDouble
 .LSOverride
+._*
 
 # IDE
 *.swp
@@ -32,3 +38,19 @@ Pods/
 *.ipa
 *.dSYM.zip
 *.dSYM
+*.app
+*.hmap
+*.moved-aside
+*.o
+*.d
+
+# Code signing
+*.mobileprovision
+*.provisionprofile
+
+# Secrets / credentials
+.env
+.env.*
+
+# Claude Code
+.claude/
