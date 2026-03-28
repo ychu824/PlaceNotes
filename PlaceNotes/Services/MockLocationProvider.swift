@@ -78,20 +78,28 @@ final class MockLocationProvider {
         print("[MockLocationProvider] Seeded \(samplePlaces.count) places with sample visits")
     }
 
+    /// Known mock place names used to detect legacy seeded data
+    /// that was inserted before the `mockDataSeeded` flag existed.
+    private static let mockPlaceNames: Set<String> = Set(samplePlaces.map(\.name))
+
     /// Removes all mock-seeded data from the database.
     /// Call this in release builds to clean up leftover debug data.
+    /// Detects mock data both by the UserDefaults flag AND by matching
+    /// against known mock place names (handles data seeded before the flag existed).
     @MainActor
     static func purgeIfNeeded(context: ModelContext) {
-        guard hasSeededData else { return }
-
-        let visitDescriptor = FetchDescriptor<Visit>()
         let placeDescriptor = FetchDescriptor<Place>()
+        guard let places = try? context.fetch(placeDescriptor) else { return }
 
-        if let visits = try? context.fetch(visitDescriptor) {
-            for visit in visits { context.delete(visit) }
-        }
-        if let places = try? context.fetch(placeDescriptor) {
-            for place in places { context.delete(place) }
+        let hasMockPlaces = places.contains { mockPlaceNames.contains($0.name) }
+        guard hasSeededData || hasMockPlaces else { return }
+
+        // Only delete places that match known mock names and their visits
+        for place in places where mockPlaceNames.contains(place.name) {
+            for visit in place.visits {
+                context.delete(visit)
+            }
+            context.delete(place)
         }
 
         try? context.save()
