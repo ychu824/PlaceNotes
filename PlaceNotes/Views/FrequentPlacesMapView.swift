@@ -8,25 +8,34 @@ struct FrequentPlacesMapView: View {
     @EnvironmentObject private var locationManager: LocationManager
     @State private var selectedPlace: Place?
     @State private var cameraPosition: MapCameraPosition = .automatic
+    @State private var visibleRegion: MKCoordinateRegion?
 
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottomTrailing) {
                 Map(position: $cameraPosition, selection: $selectedPlace) {
-                    // User's current location
                     UserAnnotation()
 
-                    ForEach(viewModel.monthlyPlaces.prefix(20)) { ranking in
-                        Annotation(ranking.place.name, coordinate: ranking.place.coordinate) {
-                            PlaceAnnotationView(ranking: ranking)
+                    ForEach(clusteredAnnotations, id: \.id) { item in
+                        if let cluster = item as? ClusterItem {
+                            Annotation("", coordinate: cluster.coordinate) {
+                                ClusterAnnotationView(cluster: cluster)
+                            }
+                        } else if let single = item as? SingleItem {
+                            Annotation(single.ranking.place.name, coordinate: single.coordinate) {
+                                PlaceAnnotationView(ranking: single.ranking)
+                            }
+                            .tag(single.ranking.place)
                         }
-                        .tag(ranking.place)
                     }
                 }
                 .mapStyle(.standard(showsTraffic: false))
                 .mapControls {
                     MapCompass()
                     MapScaleView()
+                }
+                .onMapCameraChange(frequency: .onEnd) { context in
+                    visibleRegion = context.region
                 }
 
                 // Current location button
@@ -56,6 +65,55 @@ struct FrequentPlacesMapView: View {
         }
     }
 
+    // MARK: - Clustering
+
+    private var clusteredAnnotations: [any MapAnnotationItem] {
+        let rankings = Array(viewModel.monthlyPlaces.prefix(50))
+        guard let region = visibleRegion else {
+            // No region yet — show all as singles
+            return rankings.map { SingleItem(ranking: $0) }
+        }
+
+        let clusterRadius = region.span.latitudeDelta * 0.08
+        return clusterItems(from: rankings, radius: clusterRadius)
+    }
+
+    private func clusterItems(from rankings: [PlaceRanking], radius: Double) -> [any MapAnnotationItem] {
+        var used = Set<UUID>()
+        var result: [any MapAnnotationItem] = []
+
+        for ranking in rankings {
+            guard !used.contains(ranking.id) else { continue }
+
+            // Find nearby rankings within cluster radius
+            var group = [ranking]
+            used.insert(ranking.id)
+
+            for other in rankings {
+                guard !used.contains(other.id) else { continue }
+                let latDiff = abs(ranking.place.latitude - other.place.latitude)
+                let lonDiff = abs(ranking.place.longitude - other.place.longitude)
+                if latDiff < radius && lonDiff < radius {
+                    group.append(other)
+                    used.insert(other.id)
+                }
+            }
+
+            if group.count == 1 {
+                result.append(SingleItem(ranking: ranking))
+            } else {
+                let avgLat = group.reduce(0.0) { $0 + $1.place.latitude } / Double(group.count)
+                let avgLon = group.reduce(0.0) { $0 + $1.place.longitude } / Double(group.count)
+                result.append(ClusterItem(
+                    coordinate: CLLocationCoordinate2D(latitude: avgLat, longitude: avgLon),
+                    rankings: group
+                ))
+            }
+        }
+
+        return result
+    }
+
     private func goToCurrentLocation() {
         if let coordinate = locationManager.userLocation {
             withAnimation {
@@ -69,24 +127,89 @@ struct FrequentPlacesMapView: View {
     }
 }
 
+// MARK: - Annotation Data Models
+
+protocol MapAnnotationItem: Identifiable {
+    var id: UUID { get }
+    var coordinate: CLLocationCoordinate2D { get }
+}
+
+struct SingleItem: MapAnnotationItem {
+    let id = UUID()
+    let ranking: PlaceRanking
+    var coordinate: CLLocationCoordinate2D { ranking.place.coordinate }
+}
+
+struct ClusterItem: MapAnnotationItem {
+    let id = UUID()
+    let coordinate: CLLocationCoordinate2D
+    let rankings: [PlaceRanking]
+
+    var totalVisits: Int {
+        rankings.reduce(0) { $0 + $1.qualifiedStays }
+    }
+
+    var topEmojis: String {
+        let emojis = rankings
+            .prefix(3)
+            .map { PlaceCategorizer.emoji(for: $0.place.category) }
+        return emojis.joined()
+    }
+}
+
+// MARK: - Annotation Views
+
 struct PlaceAnnotationView: View {
     let ranking: PlaceRanking
 
     var body: some View {
         VStack(spacing: 2) {
-            Image(systemName: PlaceCategorizer.icon(for: ranking.place.category))
+            Text(PlaceCategorizer.emoji(for: ranking.place.category))
                 .font(.title)
-                .foregroundStyle(.red)
+                .frame(width: 44, height: 44)
+                .background(.white)
+                .clipShape(Circle())
+                .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
 
             Text("\(ranking.qualifiedStays)")
                 .font(.caption2.bold())
+                .foregroundStyle(.white)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(.ultraThinMaterial)
+                .background(Color.accentColor)
                 .clipShape(Capsule())
         }
     }
 }
+
+struct ClusterAnnotationView: View {
+    let cluster: ClusterItem
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(cluster.topEmojis)
+                .font(.callout)
+                .frame(width: 52, height: 52)
+                .background(.white)
+                .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .strokeBorder(Color.accentColor.opacity(0.3), lineWidth: 2)
+                )
+                .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+
+            Text("\(cluster.rankings.count) places")
+                .font(.caption2.bold())
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(Color.accentColor)
+                .clipShape(Capsule())
+        }
+    }
+}
+
+// MARK: - Place Detail Sheet
 
 struct PlaceDetailSheet: View {
     @Environment(\.modelContext) private var modelContext
@@ -98,13 +221,20 @@ struct PlaceDetailSheet: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text(place.name)
-                .font(.title2.bold())
+            HStack(spacing: 12) {
+                Text(PlaceCategorizer.emoji(for: place.category))
+                    .font(.largeTitle)
 
-            if let category = place.category {
-                Label(category, systemImage: PlaceCategorizer.icon(for: category))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(place.name)
+                        .font(.title2.bold())
+
+                    if let category = place.category {
+                        Text(category)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
 
             Divider()
