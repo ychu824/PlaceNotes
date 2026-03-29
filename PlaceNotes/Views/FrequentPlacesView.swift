@@ -9,6 +9,9 @@ struct FrequentPlacesView: View {
     @State private var placeToDelete: Place?
     @State private var showDeleteConfirmation = false
     @State private var isEditing = false
+    @State private var placeToRename: Place?
+    @State private var showRenameDialog = false
+    @State private var renameText = ""
 
     var body: some View {
         NavigationStack {
@@ -57,6 +60,15 @@ struct FrequentPlacesView: View {
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
+
+                                Button {
+                                    placeToRename = ranking.place
+                                    renameText = ranking.place.displayName
+                                    showRenameDialog = true
+                                } label: {
+                                    Label("Rename", systemImage: "pencil")
+                                }
+                                .tint(.orange)
                             }
                         }
                     }
@@ -78,6 +90,32 @@ struct FrequentPlacesView: View {
             }
             .onAppear { viewModel.refresh(places: places) }
             .onChange(of: selectedTab) { _, _ in viewModel.refresh(places: places) }
+            .alert("Rename Place", isPresented: $showRenameDialog) {
+                TextField("Name", text: $renameText)
+                Button("Save") {
+                    if let place = placeToRename, !renameText.trimmingCharacters(in: .whitespaces).isEmpty {
+                        place.nickname = renameText.trimmingCharacters(in: .whitespaces)
+                        try? modelContext.save()
+                        viewModel.refresh(places: places)
+                    }
+                    placeToRename = nil
+                }
+                Button("Reset to Original", role: .destructive) {
+                    if let place = placeToRename {
+                        place.nickname = nil
+                        try? modelContext.save()
+                        viewModel.refresh(places: places)
+                    }
+                    placeToRename = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    placeToRename = nil
+                }
+            } message: {
+                if let place = placeToRename {
+                    Text("Original name: \(place.name)")
+                }
+            }
             .alert("Delete Place?", isPresented: $showDeleteConfirmation) {
                 Button("Delete", role: .destructive) {
                     if let place = placeToDelete {
@@ -121,8 +159,14 @@ struct PlaceRankingRow: View {
                 .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(ranking.place.name)
+                Text(ranking.place.displayName)
                     .font(.body.weight(.medium))
+
+                if ranking.place.nickname != nil {
+                    Text(ranking.place.name)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
 
                 if let category = ranking.place.category, !category.isEmpty {
                     Text(category)
