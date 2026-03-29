@@ -4,6 +4,9 @@ struct SettingsView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var trackingViewModel: TrackingViewModel
 
+    @State private var pendingMinStay: Int?
+    @State private var showConfirmation = false
+
     var body: some View {
         NavigationStack {
             Form {
@@ -19,9 +22,15 @@ struct SettingsView: View {
                         }
 
                         Stepper(
-                            value: $settings.minStayMinutes,
+                            value: Binding(
+                                get: { pendingMinStay ?? settings.minStayMinutes },
+                                set: { newValue in
+                                    pendingMinStay = newValue
+                                    showConfirmation = true
+                                }
+                            ),
                             in: 1...120,
-                            step: 5
+                            step: 1
                         ) {
                             EmptyView()
                         }
@@ -29,7 +38,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Stay Threshold")
                 } footer: {
-                    Text("Only visits lasting at least \(settings.minStayMinutes) minutes count as qualified stays.")
+                    Text("Controls both when a visit is recorded and which visits count as qualified stays. A lower value records more places but may include brief stops.")
                 }
 
                 Section {
@@ -61,6 +70,21 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .alert("Change Minimum Stay?", isPresented: $showConfirmation) {
+                Button("Apply") {
+                    if let newValue = pendingMinStay {
+                        settings.minStayMinutes = newValue
+                    }
+                    pendingMinStay = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    pendingMinStay = nil
+                }
+            } message: {
+                if let newValue = pendingMinStay {
+                    Text("Change minimum stay from \(settings.minStayMinutes) min to \(newValue) min?\n\nThis affects both when visits are recorded and which visits appear in your reports.")
+                }
+            }
         }
     }
 }

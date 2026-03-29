@@ -5,20 +5,44 @@ import SwiftData
 struct FrequentPlacesMapView: View {
     @Query private var places: [Place]
     @StateObject private var viewModel = PlacesViewModel()
+    @EnvironmentObject private var locationManager: LocationManager
     @State private var selectedPlace: Place?
     @State private var cameraPosition: MapCameraPosition = .automatic
 
     var body: some View {
         NavigationStack {
-            Map(position: $cameraPosition, selection: $selectedPlace) {
-                ForEach(viewModel.monthlyPlaces.prefix(20)) { ranking in
-                    Annotation(ranking.place.name, coordinate: ranking.place.coordinate) {
-                        PlaceAnnotationView(ranking: ranking)
+            ZStack(alignment: .bottomTrailing) {
+                Map(position: $cameraPosition, selection: $selectedPlace) {
+                    // User's current location
+                    UserAnnotation()
+
+                    ForEach(viewModel.monthlyPlaces.prefix(20)) { ranking in
+                        Annotation(ranking.place.name, coordinate: ranking.place.coordinate) {
+                            PlaceAnnotationView(ranking: ranking)
+                        }
+                        .tag(ranking.place)
                     }
-                    .tag(ranking.place)
                 }
+                .mapStyle(.standard(showsTraffic: false))
+                .mapControls {
+                    MapCompass()
+                    MapScaleView()
+                }
+
+                // Current location button
+                Button {
+                    goToCurrentLocation()
+                } label: {
+                    Image(systemName: "location.fill")
+                        .font(.title3)
+                        .padding(12)
+                        .background(.regularMaterial)
+                        .clipShape(Circle())
+                        .shadow(radius: 2)
+                }
+                .padding(.trailing, 16)
+                .padding(.bottom, 24)
             }
-            .mapStyle(.standard)
             .sheet(item: $selectedPlace) { place in
                 PlaceDetailSheet(place: place)
                     .presentationDetents([.medium])
@@ -26,6 +50,18 @@ struct FrequentPlacesMapView: View {
             .navigationTitle("Map")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear { viewModel.refresh(places: places) }
+        }
+    }
+
+    private func goToCurrentLocation() {
+        if let coordinate = locationManager.userLocation {
+            withAnimation {
+                cameraPosition = .region(MKCoordinateRegion(
+                    center: coordinate,
+                    latitudinalMeters: 500,
+                    longitudinalMeters: 500
+                ))
+            }
         }
     }
 }
