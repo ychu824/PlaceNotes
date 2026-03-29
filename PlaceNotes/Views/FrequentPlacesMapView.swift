@@ -9,6 +9,7 @@ struct FrequentPlacesMapView: View {
     @State private var selectedPlace: Place?
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var visibleRegion: MKCoordinateRegion?
+    @State private var cachedAnnotations: [any MapAnnotationItem] = []
 
     var body: some View {
         NavigationStack {
@@ -16,7 +17,7 @@ struct FrequentPlacesMapView: View {
                 Map(position: $cameraPosition, selection: $selectedPlace) {
                     UserAnnotation()
 
-                    ForEach(clusteredAnnotations, id: \.id) { item in
+                    ForEach(cachedAnnotations, id: \.id) { item in
                         if let cluster = item as? ClusterItem {
                             Annotation("", coordinate: cluster.coordinate) {
                                 ClusterAnnotationView(cluster: cluster)
@@ -36,6 +37,7 @@ struct FrequentPlacesMapView: View {
                 }
                 .onMapCameraChange(frequency: .onEnd) { context in
                     visibleRegion = context.region
+                    rebuildAnnotations()
                 }
 
                 // Current location button
@@ -61,21 +63,25 @@ struct FrequentPlacesMapView: View {
             }
             .navigationTitle("Map")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear { viewModel.refresh(places: places) }
+            .onAppear {
+                viewModel.refresh(places: places)
+                rebuildAnnotations()
+            }
         }
     }
 
     // MARK: - Clustering
 
-    private var clusteredAnnotations: [any MapAnnotationItem] {
+    /// Rebuilds annotations only when region or data changes — not on every render.
+    private func rebuildAnnotations() {
         let rankings = Array(viewModel.monthlyPlaces.prefix(50))
         guard let region = visibleRegion else {
-            // No region yet — show all as singles
-            return rankings.map { SingleItem(ranking: $0) }
+            cachedAnnotations = rankings.map { SingleItem(ranking: $0) }
+            return
         }
 
         let clusterRadius = region.span.latitudeDelta * 0.08
-        return clusterItems(from: rankings, radius: clusterRadius)
+        cachedAnnotations = clusterItems(from: rankings, radius: clusterRadius)
     }
 
     private func clusterItems(from rankings: [PlaceRanking], radius: Double) -> [any MapAnnotationItem] {
@@ -130,20 +136,27 @@ struct FrequentPlacesMapView: View {
 // MARK: - Annotation Data Models
 
 protocol MapAnnotationItem: Identifiable {
-    var id: UUID { get }
+    var id: String { get }
     var coordinate: CLLocationCoordinate2D { get }
 }
 
 struct SingleItem: MapAnnotationItem {
-    let id = UUID()
     let ranking: PlaceRanking
+
+    /// Stable ID derived from the place, so SwiftUI reuses the view.
+    var id: String { "single-\(ranking.place.id)" }
     var coordinate: CLLocationCoordinate2D { ranking.place.coordinate }
 }
 
 struct ClusterItem: MapAnnotationItem {
-    let id = UUID()
     let coordinate: CLLocationCoordinate2D
     let rankings: [PlaceRanking]
+
+    /// Stable ID derived from sorted member place IDs.
+    var id: String {
+        let memberIDs = rankings.map { $0.place.id.uuidString }.sorted().joined(separator: "+")
+        return "cluster-\(memberIDs)"
+    }
 
     var totalVisits: Int {
         rankings.reduce(0) { $0 + $1.qualifiedStays }
