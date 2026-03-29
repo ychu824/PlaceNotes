@@ -92,4 +92,39 @@ final class PlaceCategorizer {
         guard let label = categoryLabel else { return "mappin.circle.fill" }
         return categoryMap.first(where: { $0.label == label })?.icon ?? "mappin.circle.fill"
     }
+
+    /// Emoji mapping for categories — used for map annotations.
+    private static let emojiMap: [String: String] = [
+        "Restaurant": "\u{1F374}",    // fork and knife
+        "Cafe": "\u{2615}",           // hot beverage
+        "Bakery": "\u{1F370}",        // shortcake
+        "Brewery": "\u{1F37A}",       // beer mug
+        "Grocery": "\u{1F6D2}",       // shopping cart
+        "Gym": "\u{1F4AA}",           // flexed biceps
+        "Hospital": "\u{1F3E5}",      // hospital
+        "Pharmacy": "\u{1F48A}",      // pill
+        "School": "\u{1F393}",        // graduation cap
+        "University": "\u{1F3DB}",    // classical building
+        "Library": "\u{1F4DA}",       // books
+        "Store": "\u{1F6CD}",         // shopping bags
+        "Gas Station": "\u{26FD}",    // fuel pump
+        "Parking": "\u{1F17F}",       // P button
+        "Park": "\u{1F333}",          // deciduous tree
+        "Beach": "\u{1F3D6}",         // beach with umbrella
+        "Theater": "\u{1F3AD}",       // performing arts
+        "Museum": "\u{1F3DB}",        // classical building
+        "Nightlife": "\u{1F3B6}",     // musical notes
+        "Hotel": "\u{1F3E8}",         // hotel
+        "Airport": "\u{2708}",        // airplane
+        "Transit": "\u{1F68C}",       // bus
+        "Bank": "\u{1F3E6}",          // bank
+        "Post Office": "\u{1F4EE}",   // postbox
+        "Laundry": "\u{1F9FA}",       // basket
+    ]
+
+    /// Returns an emoji for a category label.
+    static func emoji(for categoryLabel: String?) -> String {
+        guard let label = categoryLabel else { return "\u{1F4CD}" } // round pushpin
+        return emojiMap[label] ?? "\u{1F4CD}"
+    }
 }
