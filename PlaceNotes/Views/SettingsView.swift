@@ -4,35 +4,27 @@ struct SettingsView: View {
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var trackingViewModel: TrackingViewModel
 
-    @State private var pendingMinStay: Int?
-    @State private var showConfirmation = false
+    @State private var showMinStayInput = false
+    @State private var minStayInputText = ""
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    VStack(alignment: .leading, spacing: 12) {
+                    Button {
+                        minStayInputText = "\(settings.minStayMinutes)"
+                        showMinStayInput = true
+                    } label: {
                         HStack {
                             Text("Minimum Stay")
-                                .font(.body)
+                                .foregroundStyle(.primary)
                             Spacer()
                             Text("\(settings.minStayMinutes) min")
                                 .font(.body.bold())
                                 .foregroundStyle(Color.accentColor)
-                        }
-
-                        Stepper(
-                            value: Binding(
-                                get: { pendingMinStay ?? settings.minStayMinutes },
-                                set: { newValue in
-                                    pendingMinStay = newValue
-                                    showConfirmation = true
-                                }
-                            ),
-                            in: 1...120,
-                            step: 1
-                        ) {
-                            EmptyView()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
                         }
                     }
                 } header: {
@@ -70,21 +62,25 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
-            .alert("Change Minimum Stay?", isPresented: $showConfirmation) {
+            .alert("Set Minimum Stay", isPresented: $showMinStayInput) {
+                TextField("Minutes", text: $minStayInputText)
+                    .keyboardType(.numberPad)
+
                 Button("Apply") {
-                    if let newValue = pendingMinStay {
-                        settings.minStayMinutes = newValue
-                    }
-                    pendingMinStay = nil
+                    applyMinStay()
                 }
-                Button("Cancel", role: .cancel) {
-                    pendingMinStay = nil
-                }
+                Button("Cancel", role: .cancel) {}
             } message: {
-                if let newValue = pendingMinStay {
-                    Text("Change minimum stay from \(settings.minStayMinutes) min to \(newValue) min?\n\nThis affects both when visits are recorded and which visits appear in your reports.")
-                }
+                Text("Enter the minimum number of minutes a visit must last to be recorded (1–1440).\n\nCurrently set to \(settings.minStayMinutes) min.")
             }
         }
+    }
+
+    private func applyMinStay() {
+        guard let value = Int(minStayInputText),
+              value >= 1, value <= 1440 else {
+            return
+        }
+        settings.minStayMinutes = value
     }
 }
