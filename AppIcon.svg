@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4A8CC7"/>
+      <stop offset="100%" stop-color="#2B5E99"/>
+    </linearGradient>
+    <linearGradient id="pin" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="100%" stop-color="#E8E4DF"/>
+    </linearGradient>
+    <linearGradient id="inner" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#5A9FD6"/>
+      <stop offset="100%" stop-color="#3578B2"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Background with rounded corners (iOS style) -->
+  <rect width="1024" height="1024" rx="224" ry="224" fill="url(#bg)"/>
+
+  <!-- Subtle radial glow behind pin -->
+  <circle cx="512" cy="420" r="260" fill="#FFFFFF" opacity="0.06"/>
+
+  <!-- Location pin body -->
+  <path d="
+    M512 160
+    C400 160 308 252 308 364
+    C308 510 512 740 512 740
+    C512 740 716 510 716 364
+    C716 252 624 160 512 160
+    Z
+  " fill="url(#pin)" opacity="0.95"/>
+
+  <!-- Inner circle of pin -->
+  <circle cx="512" cy="370" r="120" fill="url(#inner)"/>
+
+  <!-- Note lines inside the pin circle (representing notes/data) -->
+  <line x1="462" y1="340" x2="562" y2="340" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round" opacity="0.9"/>
+  <line x1="462" y1="370" x2="545" y2="370" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round" opacity="0.7"/>
+  <line x1="462" y1="400" x2="530" y2="400" stroke="#FFFFFF" stroke-width="12" stroke-linecap="round" opacity="0.5"/>
+
+  <!-- Small frequency dots at the bottom (representing tracked places) -->
+  <circle cx="400" cy="830" r="18" fill="#FFFFFF" opacity="0.3"/>
+  <circle cx="460" cy="830" r="18" fill="#FFFFFF" opacity="0.45"/>
+  <circle cx="520" cy="830" r="18" fill="#FFFFFF" opacity="0.6"/>
+  <circle cx="580" cy="830" r="18" fill="#FFFFFF" opacity="0.75"/>
+  <circle cx="640" cy="830" r="18" fill="#FFFFFF" opacity="0.9"/>
+</svg>
