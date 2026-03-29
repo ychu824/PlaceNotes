@@ -2,9 +2,12 @@ import SwiftUI
 import SwiftData
 
 struct FrequentPlacesView: View {
+    @Environment(\.modelContext) private var modelContext
     @Query private var places: [Place]
     @StateObject private var viewModel = PlacesViewModel()
     @State private var selectedTab: PlacesPeriod = .weekly
+    @State private var placeToDelete: Place?
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -28,8 +31,18 @@ struct FrequentPlacesView: View {
                     )
                     Spacer()
                 } else {
-                    List(rankings) { ranking in
-                        PlaceRankingRow(ranking: ranking)
+                    List {
+                        ForEach(rankings) { ranking in
+                            PlaceRankingRow(ranking: ranking)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        placeToDelete = ranking.place
+                                        showDeleteConfirmation = true
+                                    } label: {
+                                        Label("Delete", systemImage: "trash")
+                                    }
+                                }
+                        }
                     }
                     .listStyle(.insetGrouped)
                 }
@@ -37,7 +50,31 @@ struct FrequentPlacesView: View {
             .navigationTitle("Frequent Places")
             .onAppear { viewModel.refresh(places: places) }
             .onChange(of: selectedTab) { _, _ in viewModel.refresh(places: places) }
+            .alert("Delete Place?", isPresented: $showDeleteConfirmation) {
+                Button("Delete", role: .destructive) {
+                    if let place = placeToDelete {
+                        deletePlace(place)
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    placeToDelete = nil
+                }
+            } message: {
+                if let place = placeToDelete {
+                    Text("Delete \"\(place.name)\" and all \(place.visits.count) recorded visits? This cannot be undone.")
+                }
+            }
         }
+    }
+
+    private func deletePlace(_ place: Place) {
+        for visit in place.visits {
+            modelContext.delete(visit)
+        }
+        modelContext.delete(place)
+        try? modelContext.save()
+        placeToDelete = nil
+        viewModel.refresh(places: places)
     }
 }
 
