@@ -25,11 +25,11 @@
         <key>UIApplicationSupportsMultipleScenes</key>
         <true/>
     </dict>
+    <key>UIRequiresFullScreen</key>
+    <true/>
     <key>UISupportedInterfaceOrientations</key>
     <array>
         <string>UIInterfaceOrientationPortrait</string>
-        <string>UIInterfaceOrientationLandscapeLeft</string>
-        <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>PlaceNotes tracks the places you visit to generate summaries and reports about your frequent locations.</string>
