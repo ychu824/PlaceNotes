@@ -61,6 +61,7 @@ struct FrequentPlacesView: View {
                         }
                     }
                     .listStyle(.insetGrouped)
+                    .id(isEditing)
                     .animation(.default, value: isEditing)
                 }
             }
