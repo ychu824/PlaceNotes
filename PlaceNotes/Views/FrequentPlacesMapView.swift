@@ -23,7 +23,7 @@ struct FrequentPlacesMapView: View {
                                 ClusterAnnotationView(cluster: cluster)
                             }
                         } else if let single = item as? SingleItem {
-                            Annotation(single.ranking.place.name, coordinate: single.coordinate) {
+                            Annotation(single.ranking.place.displayName, coordinate: single.coordinate) {
                                 PlaceAnnotationView(ranking: single.ranking)
                             }
                             .tag(single.ranking.place)
@@ -231,6 +231,8 @@ struct PlaceDetailSheet: View {
     var onDelete: (() -> Void)?
 
     @State private var showDeleteConfirmation = false
+    @State private var showRenameDialog = false
+    @State private var renameText = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -239,8 +241,14 @@ struct PlaceDetailSheet: View {
                     .font(.largeTitle)
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(place.name)
+                    Text(place.displayName)
                         .font(.title2.bold())
+
+                    if place.nickname != nil {
+                        Text(place.name)
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
 
                     if let category = place.category {
                         Text(category)
@@ -261,16 +269,45 @@ struct PlaceDetailSheet: View {
 
             Spacer()
 
-            Button(role: .destructive) {
-                showDeleteConfirmation = true
-            } label: {
-                Label("Delete Place", systemImage: "trash")
-                    .frame(maxWidth: .infinity)
+            HStack(spacing: 12) {
+                Button {
+                    renameText = place.displayName
+                    showRenameDialog = true
+                } label: {
+                    Label("Rename", systemImage: "pencil")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+
+                Button(role: .destructive) {
+                    showDeleteConfirmation = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.large)
         }
         .padding()
+        .alert("Rename Place", isPresented: $showRenameDialog) {
+            TextField("Name", text: $renameText)
+            Button("Save") {
+                let trimmed = renameText.trimmingCharacters(in: .whitespaces)
+                if !trimmed.isEmpty {
+                    place.nickname = trimmed
+                    try? modelContext.save()
+                }
+            }
+            Button("Reset to Original", role: .destructive) {
+                place.nickname = nil
+                try? modelContext.save()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Original name: \(place.name)")
+        }
         .alert("Delete Place?", isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) {
                 for visit in place.visits {
@@ -283,7 +320,7 @@ struct PlaceDetailSheet: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Delete \"\(place.name)\" and all \(place.visits.count) recorded visits? This cannot be undone.")
+            Text("Delete \"\(place.displayName)\" and all \(place.visits.count) recorded visits? This cannot be undone.")
         }
     }
 }

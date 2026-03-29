@@ -6,9 +6,18 @@ import CoreLocation
 final class Place {
     var id: UUID
     var name: String
+    var nickname: String?
     var latitude: Double
     var longitude: Double
     var category: String?
+
+    /// Returns nickname if set, otherwise the auto-detected name.
+    var displayName: String {
+        if let nickname, !nickname.isEmpty {
+            return nickname
+        }
+        return name
+    }
 
     @Relationship(deleteRule: .cascade, inverse: \Visit.place)
     var visits: [Visit]
@@ -33,9 +42,10 @@ final class Place {
         qualifiedStays(minMinutes: minMinutes).reduce(0) { $0 + $1.durationMinutes }
     }
 
-    init(name: String, latitude: Double, longitude: Double, category: String? = nil) {
+    init(name: String, latitude: Double, longitude: Double, category: String? = nil, nickname: String? = nil) {
         self.id = UUID()
         self.name = name
+        self.nickname = nickname
         self.latitude = latitude
         self.longitude = longitude
         self.category = category
