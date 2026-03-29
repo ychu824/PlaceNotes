@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import MapKit
 import SwiftData
 import os
 
@@ -309,15 +310,95 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             return existing
         }
 
-        logger.info("No existing place within \(threshold) degrees — creating new place")
-        let name = await reverseGeocode(latitude: latitude, longitude: longitude)
-        let categoryResult = await PlaceCategorizer.categorize(latitude: latitude, longitude: longitude)
-        let place = Place(name: name, latitude: latitude, longitude: longitude, category: categoryResult?.label)
+        logger.info("No existing place within \(threshold) degrees — resolving name + category")
+        let resolved = await resolvePlace(latitude: latitude, longitude: longitude)
+        let place = Place(name: resolved.name, latitude: latitude, longitude: longitude, category: resolved.category)
         context.insert(place)
-        logger.notice("Created new place: \(name) (category: \(categoryResult?.label ?? "none"))")
+        logger.notice("Created new place: \(resolved.name) (category: \(resolved.category ?? "none"), source: \(resolved.source))")
         return place
     }
 
+    // MARK: - Place Name + Category Resolution
+
+    private struct ResolvedPlace {
+        let name: String
+        let category: String?
+        let source: String  // "mapkit" or "geocoder"
+    }
+
+    /// Resolves a coordinate to a place name + category.
+    /// 1. First tries MKLocalSearch to find a nearby business/POI (e.g. "Walmart", "Costco").
+    /// 2. Falls back to CLGeocoder for an address if no POI is found.
+    private func resolvePlace(latitude: Double, longitude: Double) async -> ResolvedPlace {
+        // Step 1: Try to find a named business/POI via MapKit
+        if let poi = await searchNearbyPOI(latitude: latitude, longitude: longitude) {
+            return poi
+        }
+
+        // Step 2: Fall back to reverse geocoding for address + separate categorization
+        let address = await reverseGeocode(latitude: latitude, longitude: longitude)
+        let categoryResult = await PlaceCategorizer.categorize(latitude: latitude, longitude: longitude)
+        return ResolvedPlace(name: address, category: categoryResult?.label, source: "geocoder")
+    }
+
+    /// Searches for the nearest named business/POI using coordinate-based search.
+    /// Uses MKLocalPointsOfInterestRequest (no text query bias) with a 250m radius
+    /// to handle large venues like Walmart, Costco, malls, etc.
+    private func searchNearbyPOI(latitude: Double, longitude: Double) async -> ResolvedPlace? {
+        let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+        let targetLocation = CLLocation(latitude: latitude, longitude: longitude)
+        let searchRadius: CLLocationDistance = 250 // meters — large enough for big-box stores
+
+        // Use coordinate-based POI request — no text query, so no bias toward
+        // specific business types. Returns all POIs within the radius.
+        let request = MKLocalPointsOfInterestRequest(center: coordinate, radius: searchRadius)
+        request.pointOfInterestFilter = .includingAll
+
+        let search = MKLocalSearch(request: request)
+
+        do {
+            let response = try await search.start()
+
+            // Rank candidates by distance — closest named POI wins
+            let candidates = response.mapItems
+                .compactMap { item -> (item: MKMapItem, distance: CLLocationDistance, name: String)? in
+                    guard let name = item.name, !name.isEmpty,
+                          let itemLocation = item.placemark.location else { return nil }
+                    let dist = itemLocation.distance(from: targetLocation)
+                    guard dist <= searchRadius else { return nil }
+                    return (item, dist, name)
+                }
+                .sorted { $0.distance < $1.distance }
+
+            if let best = candidates.first {
+                let category: String?
+                if let poiCategory = best.item.pointOfInterestCategory,
+                   let match = PlaceCategorizer.categoryMap.first(where: { $0.category == poiCategory }) {
+                    category = match.label
+                } else {
+                    category = nil
+                }
+
+                logger.info("MapKit POI found: \(best.name) (\(Int(best.distance))m away, category: \(category ?? "none"))")
+
+                // Log runner-up for debugging
+                if candidates.count > 1 {
+                    let runnerUp = candidates[1]
+                    logger.debug("  runner-up: \(runnerUp.name) (\(Int(runnerUp.distance))m)")
+                }
+
+                return ResolvedPlace(name: best.name, category: category, source: "mapkit")
+            }
+
+            logger.debug("No MapKit POI within \(Int(searchRadius))m of (\(latitude), \(longitude))")
+        } catch {
+            logger.warning("MKLocalSearch failed: \(error.localizedDescription)")
+        }
+
+        return nil
+    }
+
+    /// Falls back to CLGeocoder for an address-based name.
     private func reverseGeocode(latitude: Double, longitude: Double) async -> String {
         let geocoder = CLGeocoder()
         let location = CLLocation(latitude: latitude, longitude: longitude)
