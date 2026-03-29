@@ -69,6 +69,47 @@ You can also switch between Debug and Release from the scheme selector:
 2. **Edit Scheme...** > **Run** > **Info** tab
 3. Change **Build Configuration** to `Debug` or `Release`
 
+## Running Tests
+
+### Locally via command line
+
+```bash
+# Generate the project first (if not already done)
+xcodegen generate
+
+# Run all 59 unit tests
+xcodebuild test \
+  -project PlaceNotes.xcodeproj \
+  -scheme PlaceNotes \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro,OS=latest' \
+  CODE_SIGNING_ALLOWED=NO
+```
+
+### In Xcode
+
+1. Open `PlaceNotes.xcodeproj`
+2. Select the `PlaceNotes` scheme
+3. Press **Cmd+U** to run all tests
+
+### CI (GitHub Actions)
+
+Tests run automatically on:
+- Every **push to `main`**
+- Every **pull request** targeting `main`
+
+The workflow installs XcodeGen, generates the project, builds, and runs all tests. Results are uploaded as an artifact.
+
+### Test coverage
+
+| Test File | Tests | What's covered |
+|-----------|-------|---------------|
+| `VisitTests` | 14 | Duration, time-of-day boundaries, active state |
+| `PlaceTests` | 7 | Init, coordinate, qualified stays, total minutes |
+| `TrackingStateTests` | 15 | Pause/resume logic, Codable, state transitions |
+| `ReportGeneratorTests` | 8 | Rankings, date filtering, monthly report |
+| `PlaceCategorizerTests` | 8 | Icon/emoji mapping, category consistency |
+| `TimeOfDayTests` | 3 | Raw values, Codable round-trip |
+
 ## Project Structure
 
 ```
