@@ -10,6 +10,18 @@ settings:
     SWIFT_VERSION: "5.9"
     TARGETED_DEVICE_FAMILY: "1,2"
 
+schemes:
+  PlaceNotes:
+    build:
+      targets:
+        PlaceNotes: all
+        PlaceNotesTests: [test]
+    test:
+      targets:
+        - PlaceNotesTests
+    run:
+      config: Debug
+
 targets:
   PlaceNotes:
     type: application
@@ -26,3 +38,16 @@ targets:
         CODE_SIGN_ENTITLEMENTS: PlaceNotes/PlaceNotes.entitlements
     entitlements:
       path: PlaceNotes/PlaceNotes.entitlements
+
+  PlaceNotesTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - PlaceNotesTests
+    dependencies:
+      - target: PlaceNotes
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.placenotes.tests
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/PlaceNotes.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/PlaceNotes"
+        BUNDLE_LOADER: "$(TEST_HOST)"
