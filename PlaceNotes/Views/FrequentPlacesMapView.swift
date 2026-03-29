@@ -44,8 +44,11 @@ struct FrequentPlacesMapView: View {
                 .padding(.bottom, 24)
             }
             .sheet(item: $selectedPlace) { place in
-                PlaceDetailSheet(place: place)
-                    .presentationDetents([.medium])
+                PlaceDetailSheet(place: place) {
+                    selectedPlace = nil
+                    viewModel.refresh(places: places)
+                }
+                .presentationDetents([.medium])
             }
             .navigationTitle("Map")
             .navigationBarTitleDisplayMode(.inline)
@@ -86,7 +89,12 @@ struct PlaceAnnotationView: View {
 }
 
 struct PlaceDetailSheet: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
     let place: Place
+    var onDelete: (() -> Void)?
+
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -109,7 +117,30 @@ struct PlaceDetailSheet: View {
             }
 
             Spacer()
+
+            Button(role: .destructive) {
+                showDeleteConfirmation = true
+            } label: {
+                Label("Delete Place", systemImage: "trash")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
         }
         .padding()
+        .alert("Delete Place?", isPresented: $showDeleteConfirmation) {
+            Button("Delete", role: .destructive) {
+                for visit in place.visits {
+                    modelContext.delete(visit)
+                }
+                modelContext.delete(place)
+                try? modelContext.save()
+                onDelete?()
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Delete \"\(place.name)\" and all \(place.visits.count) recorded visits? This cannot be undone.")
+        }
     }
 }
