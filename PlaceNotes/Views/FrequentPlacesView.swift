@@ -8,6 +8,7 @@ struct FrequentPlacesView: View {
     @State private var selectedTab: PlacesPeriod = .weekly
     @State private var placeToDelete: Place?
     @State private var showDeleteConfirmation = false
+    @State private var isEditing = false
 
     var body: some View {
         NavigationStack {
@@ -33,21 +34,47 @@ struct FrequentPlacesView: View {
                 } else {
                     List {
                         ForEach(rankings) { ranking in
-                            PlaceRankingRow(ranking: ranking)
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    Button(role: .destructive) {
+                            HStack(spacing: 12) {
+                                // Visible delete button in edit mode
+                                if isEditing {
+                                    Button {
                                         placeToDelete = ranking.place
                                         showDeleteConfirmation = true
                                     } label: {
-                                        Label("Delete", systemImage: "trash")
+                                        Image(systemName: "minus.circle.fill")
+                                            .font(.title3)
+                                            .foregroundStyle(.red)
                                     }
+                                    .buttonStyle(.plain)
                                 }
+
+                                PlaceRankingRow(ranking: ranking)
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    placeToDelete = ranking.place
+                                    showDeleteConfirmation = true
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                     .listStyle(.insetGrouped)
+                    .animation(.default, value: isEditing)
                 }
             }
             .navigationTitle("Frequent Places")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    let rankings = selectedTab == .weekly ? viewModel.weeklyPlaces : viewModel.monthlyPlaces
+                    if !rankings.isEmpty {
+                        Button(isEditing ? "Done" : "Edit") {
+                            isEditing.toggle()
+                        }
+                    }
+                }
+            }
             .onAppear { viewModel.refresh(places: places) }
             .onChange(of: selectedTab) { _, _ in viewModel.refresh(places: places) }
             .alert("Delete Place?", isPresented: $showDeleteConfirmation) {
