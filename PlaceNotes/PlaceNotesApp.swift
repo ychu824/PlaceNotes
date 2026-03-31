@@ -10,7 +10,7 @@ struct PlaceNotesApp: App {
 
     init() {
         do {
-            modelContainer = try ModelContainer(for: Place.self, Visit.self)
+            modelContainer = try ModelContainer(for: Place.self, Visit.self, CustomCategory.self)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }

@@ -350,7 +350,7 @@ struct PlaceDetailSheet: View {
 struct CategoryPickerSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @Query private var allPlaces: [Place]
+    @Query(sort: \CustomCategory.name) private var customCategories: [CustomCategory]
     let place: Place
 
     @State private var showCustomCategory = false
@@ -358,21 +358,6 @@ struct CategoryPickerSheet: View {
     @State private var customEmoji = ""
 
     private let columns = [GridItem(.adaptive(minimum: 72))]
-
-    /// Unique custom categories derived from existing places.
-    private var userCategories: [(emoji: String, label: String)] {
-        var seen = Set<String>()
-        var result: [(emoji: String, label: String)] = []
-        for p in allPlaces {
-            guard let emoji = p.customEmoji, !emoji.isEmpty,
-                  let label = p.category, !label.isEmpty else { continue }
-            let key = "\(emoji)\(label)"
-            if seen.insert(key).inserted {
-                result.append((emoji, label))
-            }
-        }
-        return result.sorted { $0.label < $1.label }
-    }
 
     var body: some View {
         NavigationStack {
@@ -428,16 +413,16 @@ struct CategoryPickerSheet: View {
                     }
 
                     // User-created categories (if any exist)
-                    if !userCategories.isEmpty {
+                    if !customCategories.isEmpty {
                         Text("Your Categories")
                             .font(.subheadline.bold())
                             .foregroundStyle(.secondary)
 
                         LazyVGrid(columns: columns, spacing: 12) {
-                            ForEach(userCategories, id: \.label) { entry in
-                                let isSelected = place.category == entry.label && place.customEmoji == entry.emoji
+                            ForEach(customCategories) { entry in
+                                let isSelected = place.category == entry.name && place.customEmoji == entry.emoji
                                 Button {
-                                    place.category = entry.label
+                                    place.category = entry.name
                                     place.customEmoji = entry.emoji
                                     try? modelContext.save()
                                     dismiss()
@@ -445,7 +430,7 @@ struct CategoryPickerSheet: View {
                                     VStack(spacing: 4) {
                                         Text(entry.emoji)
                                             .font(.title2)
-                                        Text(entry.label)
+                                        Text(entry.name)
                                             .font(.caption2)
                                             .lineLimit(1)
                                     }
@@ -484,6 +469,13 @@ struct CategoryPickerSheet: View {
                                 let trimmedName = customName.trimmingCharacters(in: .whitespaces)
                                 let trimmedEmoji = customEmoji.trimmingCharacters(in: .whitespaces)
                                 guard !trimmedName.isEmpty, !trimmedEmoji.isEmpty else { return }
+                                // Save as a persistent custom category if it doesn't already exist
+                                let alreadyExists = customCategories.contains {
+                                    $0.name == trimmedName && $0.emoji == trimmedEmoji
+                                }
+                                if !alreadyExists {
+                                    modelContext.insert(CustomCategory(name: trimmedName, emoji: trimmedEmoji))
+                                }
                                 place.category = trimmedName
                                 place.customEmoji = trimmedEmoji
                                 try? modelContext.save()
