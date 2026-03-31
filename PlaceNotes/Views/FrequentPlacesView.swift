@@ -12,6 +12,7 @@ struct FrequentPlacesView: View {
     @State private var placeToRename: Place?
     @State private var showRenameDialog = false
     @State private var renameText = ""
+    @State private var placeToRecategorize: Place?
 
     var body: some View {
         NavigationStack {
@@ -69,6 +70,13 @@ struct FrequentPlacesView: View {
                                     Label("Rename", systemImage: "pencil")
                                 }
                                 .tint(.orange)
+
+                                Button {
+                                    placeToRecategorize = ranking.place
+                                } label: {
+                                    Label("Category", systemImage: "tag")
+                                }
+                                .tint(.purple)
                             }
                         }
                     }
@@ -117,6 +125,10 @@ struct FrequentPlacesView: View {
                     Text("Original name: \(place.name)")
                 }
             }
+            .sheet(item: $placeToRecategorize) { place in
+                CategoryPickerSheet(place: place)
+                    .presentationDetents([.medium, .large])
+            }
             .alert("Delete Place?", isPresented: $showDeleteConfirmation) {
                 Button("Delete", role: .destructive) {
                     if let place = placeToDelete {
@@ -154,10 +166,16 @@ struct PlaceRankingRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: PlaceCategorizer.icon(for: ranking.place.category))
-                .font(.title3)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 28)
+            if ranking.place.customEmoji != nil {
+                Text(ranking.place.emoji)
+                    .font(.title3)
+                    .frame(width: 28)
+            } else {
+                Image(systemName: PlaceCategorizer.icon(for: ranking.place.category))
+                    .font(.title3)
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 28)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(ranking.place.displayName)

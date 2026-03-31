@@ -24,7 +24,7 @@ struct PlaceNotesApp: App {
 
             let storeURL = appSupport.appendingPathComponent(storeName)
             let config = ModelConfiguration(url: storeURL)
-            modelContainer = try ModelContainer(for: Place.self, Visit.self, configurations: config)
+            modelContainer = try ModelContainer(for: Place.self, Visit.self, CustomCategory.self)
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }

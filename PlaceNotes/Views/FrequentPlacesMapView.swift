@@ -1,6 +1,7 @@
 import SwiftUI
 import MapKit
 import SwiftData
+import UIKit
 
 struct FrequentPlacesMapView: View {
     @Query private var places: [Place]
@@ -170,7 +171,7 @@ struct ClusterItem: MapAnnotationItem {
     var topEmojis: String {
         let emojis = rankings
             .prefix(3)
-            .map { PlaceCategorizer.emoji(for: $0.place.category) }
+            .map { $0.place.emoji }
         return emojis.joined()
     }
 }
@@ -182,7 +183,7 @@ struct PlaceAnnotationView: View {
 
     var body: some View {
         VStack(spacing: 2) {
-            Text(PlaceCategorizer.emoji(for: ranking.place.category))
+            Text(ranking.place.emoji)
                 .font(.title)
                 .frame(width: 44, height: 44)
                 .background(.white)
@@ -238,11 +239,12 @@ struct PlaceDetailSheet: View {
     @State private var showDeleteConfirmation = false
     @State private var showRenameDialog = false
     @State private var renameText = ""
+    @State private var showCategoryPicker = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
-                Text(PlaceCategorizer.emoji(for: place.category))
+                Text(place.emoji)
                     .font(.largeTitle)
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -285,17 +287,30 @@ struct PlaceDetailSheet: View {
                 .buttonStyle(.bordered)
                 .controlSize(.large)
 
-                Button(role: .destructive) {
-                    showDeleteConfirmation = true
+                Button {
+                    showCategoryPicker = true
                 } label: {
-                    Label("Delete", systemImage: "trash")
+                    Label("Category", systemImage: "tag")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
             }
+
+            Button(role: .destructive) {
+                showDeleteConfirmation = true
+            } label: {
+                Label("Delete Place", systemImage: "trash")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
         }
         .padding()
+        .sheet(isPresented: $showCategoryPicker) {
+            CategoryPickerSheet(place: place)
+                .presentationDetents([.medium, .large])
+        }
         .alert("Rename Place", isPresented: $showRenameDialog) {
             TextField("Name", text: $renameText)
             Button("Save") {
@@ -327,5 +342,244 @@ struct PlaceDetailSheet: View {
         } message: {
             Text("Delete \"\(place.displayName)\" and all \(place.visits.count) recorded visits? This cannot be undone.")
         }
+    }
+}
+
+// MARK: - Category Picker Sheet
+
+struct CategoryPickerSheet: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    @Query(sort: \CustomCategory.name) private var customCategories: [CustomCategory]
+    let place: Place
+
+    @State private var showCustomCategory = false
+    @State private var customName = ""
+    @State private var customEmoji = ""
+
+    private let columns = [GridItem(.adaptive(minimum: 72))]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Current category
+                    HStack(spacing: 8) {
+                        Text(place.emoji)
+                            .font(.title)
+                        Text(place.category ?? "Uncategorized")
+                            .font(.headline)
+                        Spacer()
+                        Text("Current")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding()
+                    .background(.regularMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    // Built-in categories
+                    Text("Built-in Categories")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.secondary)
+
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(PlaceCategorizer.categoryMap, id: \.label) { entry in
+                            let isSelected = place.category == entry.label && place.customEmoji == nil
+                            Button {
+                                place.category = entry.label
+                                place.customEmoji = nil
+                                try? modelContext.save()
+                                dismiss()
+                            } label: {
+                                VStack(spacing: 4) {
+                                    Text(PlaceCategorizer.emoji(for: entry.label))
+                                        .font(.title2)
+                                    Text(entry.label)
+                                        .font(.caption2)
+                                        .lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    // User-created categories (if any exist)
+                    if !customCategories.isEmpty {
+                        Text("Your Categories")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.secondary)
+
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(customCategories) { entry in
+                                let isSelected = place.category == entry.name && place.customEmoji == entry.emoji
+                                Button {
+                                    place.category = entry.name
+                                    place.customEmoji = entry.emoji
+                                    try? modelContext.save()
+                                    dismiss()
+                                } label: {
+                                    VStack(spacing: 4) {
+                                        Text(entry.emoji)
+                                            .font(.title2)
+                                        Text(entry.name)
+                                            .font(.caption2)
+                                            .lineLimit(1)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    // Create new custom category
+                    Text("New Custom Category")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.secondary)
+
+                    if showCustomCategory {
+                        VStack(spacing: 12) {
+                            HStack(spacing: 12) {
+                                EmojiTextField(text: $customEmoji, placeholder: "Tap")
+                                    .frame(width: 56, height: 44)
+                                    .background(Color(.systemGray6))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                                TextField("Category name", text: $customName)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            Button {
+                                let trimmedName = customName.trimmingCharacters(in: .whitespaces)
+                                let trimmedEmoji = customEmoji.trimmingCharacters(in: .whitespaces)
+                                guard !trimmedName.isEmpty, !trimmedEmoji.isEmpty else { return }
+                                // Save as a persistent custom category if it doesn't already exist
+                                let alreadyExists = customCategories.contains {
+                                    $0.name == trimmedName && $0.emoji == trimmedEmoji
+                                }
+                                if !alreadyExists {
+                                    modelContext.insert(CustomCategory(name: trimmedName, emoji: trimmedEmoji))
+                                }
+                                place.category = trimmedName
+                                place.customEmoji = trimmedEmoji
+                                try? modelContext.save()
+                                dismiss()
+                            } label: {
+                                Text("Save Custom Category")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(customName.trimmingCharacters(in: .whitespaces).isEmpty ||
+                                      customEmoji.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                    } else {
+                        Button {
+                            customName = place.category ?? ""
+                            customEmoji = place.customEmoji ?? ""
+                            showCustomCategory = true
+                        } label: {
+                            Label("Create New Category", systemImage: "plus.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Change Category")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Emoji Keyboard Text Field
+
+/// A UITextField wrapper that opens the emoji keyboard directly.
+struct EmojiTextField: UIViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+
+    func makeUIView(context: Context) -> UIEmojiTextField {
+        let field = UIEmojiTextField()
+        field.placeholder = placeholder
+        field.font = .systemFont(ofSize: 32)
+        field.textAlignment = .center
+        field.delegate = context.coordinator
+        field.addTarget(context.coordinator, action: #selector(Coordinator.textChanged(_:)), for: .editingChanged)
+        return field
+    }
+
+    func updateUIView(_ uiView: UIEmojiTextField, context: Context) {
+        uiView.text = text
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    class Coordinator: NSObject, UITextFieldDelegate {
+        @Binding var text: String
+
+        init(text: Binding<String>) {
+            _text = text
+        }
+
+        func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+            // Allow deletions
+            if string.isEmpty { return true }
+            // Only allow emoji characters
+            return string.unicodeScalars.allSatisfy { scalar in
+                scalar.properties.isEmoji && scalar.properties.isEmojiPresentation
+                || scalar.properties.isEmoji && scalar.value > 0x238C
+            }
+        }
+
+        @objc func textChanged(_ sender: UITextField) {
+            // Keep only the last emoji (handles multi-scalar emoji like flags/families)
+            guard let value = sender.text, !value.isEmpty else {
+                text = ""
+                return
+            }
+            let lastEmoji = String(value[value.index(before: value.endIndex)...])
+            text = lastEmoji
+            sender.text = lastEmoji
+        }
+
+        func textFieldDidBeginEditing(_ textField: UITextField) {
+            textField.text = text
+        }
+    }
+}
+
+/// UITextField subclass that forces the emoji keyboard.
+class UIEmojiTextField: UITextField {
+    override var textInputMode: UITextInputMode? {
+        for mode in UITextInputMode.activeInputModes {
+            if mode.primaryLanguage == "emoji" {
+                return mode
+            }
+        }
+        return super.textInputMode
     }
 }

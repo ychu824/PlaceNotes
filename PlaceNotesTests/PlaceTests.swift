@@ -95,4 +95,28 @@ final class PlaceTests: XCTestCase {
 
         XCTAssertEqual(place.totalTrackedMinutes, 30)
     }
+
+    // MARK: - Emoji
+
+    func testEmojiReturnsCategoryDefault() {
+        let place = Place(name: "Cafe", latitude: 37.78, longitude: -122.41, category: "Cafe")
+        XCTAssertEqual(place.emoji, PlaceCategorizer.emoji(for: "Cafe"))
+    }
+
+    func testEmojiReturnsCustomEmojiWhenSet() {
+        let place = Place(name: "My Spot", latitude: 37.78, longitude: -122.41, category: "Cafe")
+        place.customEmoji = "\u{1F3E0}" // house
+        XCTAssertEqual(place.emoji, "\u{1F3E0}")
+    }
+
+    func testEmojiIgnoresEmptyCustomEmoji() {
+        let place = Place(name: "My Spot", latitude: 37.78, longitude: -122.41, category: "Cafe")
+        place.customEmoji = ""
+        XCTAssertEqual(place.emoji, PlaceCategorizer.emoji(for: "Cafe"))
+    }
+
+    func testEmojiFallbackForNilCategory() {
+        let place = Place(name: "Unknown", latitude: 0, longitude: 0)
+        XCTAssertEqual(place.emoji, PlaceCategorizer.emoji(for: nil))
+    }
 }
