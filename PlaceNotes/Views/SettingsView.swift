@@ -1,11 +1,16 @@
 import SwiftUI
+import SwiftData
 
 struct SettingsView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query private var places: [Place]
+    @Query private var visits: [Visit]
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var trackingViewModel: TrackingViewModel
 
     @State private var showMinStayInput = false
     @State private var minStayInputText = ""
+    @State private var showClearDataConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -56,12 +61,42 @@ struct SettingsView: View {
                     }
                 }
 
+                Section {
+                    LabeledContent("Places", value: "\(places.count)")
+                    LabeledContent("Visits", value: "\(visits.count)")
+                    LabeledContent("Total Tracked Time", value: totalTrackedTimeText)
+                } header: {
+                    Text("Data Storage")
+                } footer: {
+                    Text("All data is stored on-device only.")
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        showClearDataConfirmation = true
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text("Delete All Data")
+                            Spacer()
+                        }
+                    }
+                    .disabled(places.isEmpty && visits.isEmpty)
+                }
+
                 Section("About") {
                     LabeledContent("Version", value: "1.0.0")
-                    LabeledContent("Storage", value: "On-device only")
                 }
             }
             .navigationTitle("Settings")
+            .alert("Delete All Data?", isPresented: $showClearDataConfirmation) {
+                Button("Delete All", role: .destructive) {
+                    clearAllData()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will permanently delete all \(places.count) places and \(visits.count) visits. This cannot be undone.")
+            }
             .alert("Set Minimum Stay", isPresented: $showMinStayInput) {
                 TextField("Minutes", text: $minStayInputText)
                     .keyboardType(.numberPad)
@@ -82,5 +117,25 @@ struct SettingsView: View {
             return
         }
         settings.minStayMinutes = value
+    }
+
+    private func clearAllData() {
+        for visit in visits {
+            modelContext.delete(visit)
+        }
+        for place in places {
+            modelContext.delete(place)
+        }
+        try? modelContext.save()
+    }
+
+    private var totalTrackedTimeText: String {
+        let totalMinutes = places.reduce(0) { $0 + $1.totalTrackedMinutes }
+        if totalMinutes < 60 {
+            return "\(totalMinutes) min"
+        }
+        let hours = totalMinutes / 60
+        let mins = totalMinutes % 60
+        return mins > 0 ? "\(hours) hr \(mins) min" : "\(hours) hr"
     }
 }
