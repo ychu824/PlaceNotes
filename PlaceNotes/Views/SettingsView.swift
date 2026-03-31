@@ -5,6 +5,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var places: [Place]
     @Query private var visits: [Visit]
+    @Query private var customCategories: [CustomCategory]
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var trackingViewModel: TrackingViewModel
 
@@ -130,6 +131,9 @@ struct SettingsView: View {
         }
         for place in places {
             modelContext.delete(place)
+        }
+        for category in customCategories {
+            modelContext.delete(category)
         }
         try? modelContext.save()
     }
