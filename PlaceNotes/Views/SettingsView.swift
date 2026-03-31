@@ -135,54 +135,40 @@ struct SettingsView: View {
     }
 
     private func refreshStorageSize() {
-        storageSizeText = Self.calculateStorageSize()
+        storageSizeText = estimateDataSize()
     }
 
-    private static func calculateStorageSize() -> String {
-        let fileManager = FileManager.default
-        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            return "Unknown"
+    /// Estimates storage used by tracked places data only.
+    /// Each Place row: UUID (16B) + name ~50B + nickname ~50B + lat/lon 16B + category ~20B ≈ 152B
+    /// Each Visit row: UUID (16B) + 2 dates 16B + foreign key 16B ≈ 48B
+    /// SQLite overhead ~40% for indexes, page alignment, etc.
+    private func estimateDataSize() -> String {
+        let placeBytes = places.reduce(0) { total, place in
+            var bytes = 16  // UUID
+            bytes += (place.name.utf8.count)
+            bytes += (place.nickname?.utf8.count ?? 0)
+            bytes += 16     // latitude + longitude (Double x2)
+            bytes += (place.category?.utf8.count ?? 0)
+            return total + bytes
         }
 
-        // SwiftData default store is at Application Support/default.store
-        let storeName = "default.store"
-        let storeURL = appSupport.appendingPathComponent(storeName)
-
-        // Sum the main store file and its SQLite WAL/SHM companions
-        let paths = [
-            storeURL.path,
-            storeURL.path + "-wal",
-            storeURL.path + "-shm"
-        ]
-        var totalBytes: Int64 = 0
-
-        for path in paths {
-            if let attrs = try? fileManager.attributesOfItem(atPath: path),
-               let size = attrs[.size] as? Int64 {
-                totalBytes += size
-            }
+        let visitBytes = visits.reduce(0) { total, _ in
+            // UUID + arrivalDate + departureDate + foreign key
+            total + 16 + 8 + 8 + 16
         }
 
-        if totalBytes == 0 {
-            // Fallback: scan Application Support directory for any .store files
-            if let contents = try? fileManager.contentsOfDirectory(at: appSupport, includingPropertiesForKeys: [.fileSizeKey]) {
-                for file in contents {
-                    if let attrs = try? fileManager.attributesOfItem(atPath: file.path),
-                       let size = attrs[.size] as? Int64 {
-                        totalBytes += size
-                    }
-                }
-            }
+        let rawBytes = placeBytes + visitBytes
+        // Account for SQLite overhead (indexes, page headers, alignment)
+        let estimatedBytes = Int64(Double(rawBytes) * 1.4)
+
+        if estimatedBytes == 0 {
+            return "0 KB"
         }
 
-        return formatBytes(totalBytes)
-    }
-
-    private static func formatBytes(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.allowedUnits = [.useBytes, .useKB, .useMB, .useGB]
         formatter.countStyle = .file
-        return formatter.string(fromByteCount: bytes)
+        return formatter.string(fromByteCount: max(estimatedBytes, 1))
     }
 
     private var totalTrackedTimeText: String {
