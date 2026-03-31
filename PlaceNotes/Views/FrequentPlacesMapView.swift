@@ -350,6 +350,7 @@ struct PlaceDetailSheet: View {
 struct CategoryPickerSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
+    @Query private var allPlaces: [Place]
     let place: Place
 
     @State private var showCustomCategory = false
@@ -357,6 +358,21 @@ struct CategoryPickerSheet: View {
     @State private var customEmoji = ""
 
     private let columns = [GridItem(.adaptive(minimum: 72))]
+
+    /// Unique custom categories derived from existing places.
+    private var userCategories: [(emoji: String, label: String)] {
+        var seen = Set<String>()
+        var result: [(emoji: String, label: String)] = []
+        for p in allPlaces {
+            guard let emoji = p.customEmoji, !emoji.isEmpty,
+                  let label = p.category, !label.isEmpty else { continue }
+            let key = "\(emoji)\(label)"
+            if seen.insert(key).inserted {
+                result.append((emoji, label))
+            }
+        }
+        return result.sorted { $0.label < $1.label }
+    }
 
     var body: some View {
         NavigationStack {
@@ -411,8 +427,44 @@ struct CategoryPickerSheet: View {
                         }
                     }
 
-                    // Custom category
-                    Text("Custom Category")
+                    // User-created categories (if any exist)
+                    if !userCategories.isEmpty {
+                        Text("Your Categories")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.secondary)
+
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(userCategories, id: \.label) { entry in
+                                let isSelected = place.category == entry.label && place.customEmoji == entry.emoji
+                                Button {
+                                    place.category = entry.label
+                                    place.customEmoji = entry.emoji
+                                    try? modelContext.save()
+                                    dismiss()
+                                } label: {
+                                    VStack(spacing: 4) {
+                                        Text(entry.emoji)
+                                            .font(.title2)
+                                        Text(entry.label)
+                                            .font(.caption2)
+                                            .lineLimit(1)
+                                    }
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 8)
+                                    .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 8)
+                                            .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    // Create new custom category
+                    Text("New Custom Category")
                         .font(.subheadline.bold())
                         .foregroundStyle(.secondary)
 
@@ -450,7 +502,7 @@ struct CategoryPickerSheet: View {
                             customEmoji = place.customEmoji ?? ""
                             showCustomCategory = true
                         } label: {
-                            Label("Create Custom Category", systemImage: "plus.circle")
+                            Label("Create New Category", systemImage: "plus.circle")
                                 .frame(maxWidth: .infinity)
                         }
                         .buttonStyle(.bordered)
