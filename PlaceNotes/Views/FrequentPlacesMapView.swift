@@ -58,6 +58,7 @@ struct FrequentPlacesMapView: View {
                 PlaceDetailSheet(place: place) {
                     selectedPlace = nil
                     viewModel.refresh(places: places)
+                    rebuildAnnotations()
                 }
                 .presentationDetents([.medium])
             }
@@ -65,6 +66,10 @@ struct FrequentPlacesMapView: View {
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 viewModel.refresh(places: places)
+                rebuildAnnotations()
+            }
+            .onChange(of: places) { _, newPlaces in
+                viewModel.refresh(places: newPlaces)
                 rebuildAnnotations()
             }
         }

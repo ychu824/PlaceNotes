@@ -90,6 +90,7 @@ struct FrequentPlacesView: View {
             }
             .onAppear { viewModel.refresh(places: places) }
             .onChange(of: selectedTab) { _, _ in viewModel.refresh(places: places) }
+            .onChange(of: places) { _, newPlaces in viewModel.refresh(places: newPlaces) }
             .alert("Rename Place", isPresented: $showRenameDialog) {
                 TextField("Name", text: $renameText)
                 Button("Save") {
