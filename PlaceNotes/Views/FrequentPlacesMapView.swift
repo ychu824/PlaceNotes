@@ -170,7 +170,7 @@ struct ClusterItem: MapAnnotationItem {
     var topEmojis: String {
         let emojis = rankings
             .prefix(3)
-            .map { PlaceCategorizer.emoji(for: $0.place.category) }
+            .map { $0.place.emoji }
         return emojis.joined()
     }
 }
@@ -182,7 +182,7 @@ struct PlaceAnnotationView: View {
 
     var body: some View {
         VStack(spacing: 2) {
-            Text(PlaceCategorizer.emoji(for: ranking.place.category))
+            Text(ranking.place.emoji)
                 .font(.title)
                 .frame(width: 44, height: 44)
                 .background(.white)
@@ -238,11 +238,12 @@ struct PlaceDetailSheet: View {
     @State private var showDeleteConfirmation = false
     @State private var showRenameDialog = false
     @State private var renameText = ""
+    @State private var showCategoryPicker = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 12) {
-                Text(PlaceCategorizer.emoji(for: place.category))
+                Text(place.emoji)
                     .font(.largeTitle)
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -285,17 +286,30 @@ struct PlaceDetailSheet: View {
                 .buttonStyle(.bordered)
                 .controlSize(.large)
 
-                Button(role: .destructive) {
-                    showDeleteConfirmation = true
+                Button {
+                    showCategoryPicker = true
                 } label: {
-                    Label("Delete", systemImage: "trash")
+                    Label("Category", systemImage: "tag")
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.large)
             }
+
+            Button(role: .destructive) {
+                showDeleteConfirmation = true
+            } label: {
+                Label("Delete Place", systemImage: "trash")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
         }
         .padding()
+        .sheet(isPresented: $showCategoryPicker) {
+            CategoryPickerSheet(place: place)
+                .presentationDetents([.medium, .large])
+        }
         .alert("Rename Place", isPresented: $showRenameDialog) {
             TextField("Name", text: $renameText)
             Button("Save") {
@@ -326,6 +340,142 @@ struct PlaceDetailSheet: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Delete \"\(place.displayName)\" and all \(place.visits.count) recorded visits? This cannot be undone.")
+        }
+    }
+}
+
+// MARK: - Category Picker Sheet
+
+struct CategoryPickerSheet: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    let place: Place
+
+    @State private var showCustomCategory = false
+    @State private var customName = ""
+    @State private var customEmoji = ""
+
+    private let columns = [GridItem(.adaptive(minimum: 72))]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    // Current category
+                    HStack(spacing: 8) {
+                        Text(place.emoji)
+                            .font(.title)
+                        Text(place.category ?? "Uncategorized")
+                            .font(.headline)
+                        Spacer()
+                        Text("Current")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding()
+                    .background(.regularMaterial)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                    // Built-in categories
+                    Text("Built-in Categories")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.secondary)
+
+                    LazyVGrid(columns: columns, spacing: 12) {
+                        ForEach(PlaceCategorizer.categoryMap, id: \.label) { entry in
+                            let isSelected = place.category == entry.label && place.customEmoji == nil
+                            Button {
+                                place.category = entry.label
+                                place.customEmoji = nil
+                                try? modelContext.save()
+                                dismiss()
+                            } label: {
+                                VStack(spacing: 4) {
+                                    Text(PlaceCategorizer.emoji(for: entry.label))
+                                        .font(.title2)
+                                    Text(entry.label)
+                                        .font(.caption2)
+                                        .lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 8)
+                                .background(isSelected ? Color.accentColor.opacity(0.15) : Color.clear)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8)
+                                        .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
+                                )
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    // Custom category
+                    Text("Custom Category")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.secondary)
+
+                    if showCustomCategory {
+                        VStack(spacing: 12) {
+                            HStack(spacing: 12) {
+                                TextField("Emoji", text: $customEmoji)
+                                    .font(.title)
+                                    .frame(width: 50)
+                                    .multilineTextAlignment(.center)
+                                    .padding(8)
+                                    .background(Color(.systemGray6))
+                                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                                    .onChange(of: customEmoji) { _, newValue in
+                                        // Keep only the first emoji
+                                        if let first = newValue.first {
+                                            let str = String(first)
+                                            if str != newValue {
+                                                customEmoji = str
+                                            }
+                                        }
+                                    }
+
+                                TextField("Category name", text: $customName)
+                                    .textFieldStyle(.roundedBorder)
+                            }
+
+                            Button {
+                                let trimmedName = customName.trimmingCharacters(in: .whitespaces)
+                                let trimmedEmoji = customEmoji.trimmingCharacters(in: .whitespaces)
+                                guard !trimmedName.isEmpty, !trimmedEmoji.isEmpty else { return }
+                                place.category = trimmedName
+                                place.customEmoji = trimmedEmoji
+                                try? modelContext.save()
+                                dismiss()
+                            } label: {
+                                Text("Save Custom Category")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(customName.trimmingCharacters(in: .whitespaces).isEmpty ||
+                                      customEmoji.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
+                    } else {
+                        Button {
+                            customName = place.category ?? ""
+                            customEmoji = place.customEmoji ?? ""
+                            showCustomCategory = true
+                        } label: {
+                            Label("Create Custom Category", systemImage: "plus.circle")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle("Change Category")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
         }
     }
 }

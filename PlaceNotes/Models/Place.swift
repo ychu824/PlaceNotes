@@ -10,6 +10,7 @@ final class Place {
     var latitude: Double
     var longitude: Double
     var category: String?
+    var customEmoji: String?
 
     /// Returns nickname if set, otherwise the auto-detected name.
     var displayName: String {
@@ -40,6 +41,14 @@ final class Place {
 
     func totalQualifiedMinutes(minMinutes: Int) -> Int {
         qualifiedStays(minMinutes: minMinutes).reduce(0) { $0 + $1.durationMinutes }
+    }
+
+    /// Returns the emoji for this place, preferring the user's custom emoji over the category default.
+    var emoji: String {
+        if let customEmoji, !customEmoji.isEmpty {
+            return customEmoji
+        }
+        return PlaceCategorizer.emoji(for: category)
     }
 
     init(name: String, latitude: Double, longitude: Double, category: String? = nil, nickname: String? = nil) {
