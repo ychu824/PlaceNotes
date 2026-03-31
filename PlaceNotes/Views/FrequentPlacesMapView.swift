@@ -1,6 +1,7 @@
 import SwiftUI
 import MapKit
 import SwiftData
+import UIKit
 
 struct FrequentPlacesMapView: View {
     @Query private var places: [Place]
@@ -418,22 +419,10 @@ struct CategoryPickerSheet: View {
                     if showCustomCategory {
                         VStack(spacing: 12) {
                             HStack(spacing: 12) {
-                                TextField("Emoji", text: $customEmoji)
-                                    .font(.title)
-                                    .frame(width: 50)
-                                    .multilineTextAlignment(.center)
-                                    .padding(8)
+                                EmojiTextField(text: $customEmoji, placeholder: "Tap")
+                                    .frame(width: 56, height: 44)
                                     .background(Color(.systemGray6))
                                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                                    .onChange(of: customEmoji) { _, newValue in
-                                        // Keep only the first emoji
-                                        if let first = newValue.first {
-                                            let str = String(first)
-                                            if str != newValue {
-                                                customEmoji = str
-                                            }
-                                        }
-                                    }
 
                                 TextField("Category name", text: $customName)
                                     .textFieldStyle(.roundedBorder)
@@ -477,5 +466,66 @@ struct CategoryPickerSheet: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - Emoji Keyboard Text Field
+
+/// A UITextField wrapper that opens the emoji keyboard directly.
+struct EmojiTextField: UIViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+
+    func makeUIView(context: Context) -> UIEmojiTextField {
+        let field = UIEmojiTextField()
+        field.placeholder = placeholder
+        field.font = .systemFont(ofSize: 32)
+        field.textAlignment = .center
+        field.delegate = context.coordinator
+        field.addTarget(context.coordinator, action: #selector(Coordinator.textChanged(_:)), for: .editingChanged)
+        return field
+    }
+
+    func updateUIView(_ uiView: UIEmojiTextField, context: Context) {
+        uiView.text = text
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text)
+    }
+
+    class Coordinator: NSObject, UITextFieldDelegate {
+        @Binding var text: String
+
+        init(text: Binding<String>) {
+            _text = text
+        }
+
+        @objc func textChanged(_ sender: UITextField) {
+            // Keep only the last entered character (emoji)
+            if let value = sender.text, !value.isEmpty {
+                let last = String(value.suffix(1))
+                text = last
+                sender.text = last
+            } else {
+                text = ""
+            }
+        }
+
+        func textFieldDidBeginEditing(_ textField: UITextField) {
+            textField.text = text
+        }
+    }
+}
+
+/// UITextField subclass that forces the emoji keyboard.
+class UIEmojiTextField: UITextField {
+    override var textInputMode: UITextInputMode? {
+        for mode in UITextInputMode.activeInputModes {
+            if mode.primaryLanguage == "emoji" {
+                return mode
+            }
+        }
+        return super.textInputMode
     }
 }
