@@ -11,6 +11,7 @@ struct SettingsView: View {
     @State private var showMinStayInput = false
     @State private var minStayInputText = ""
     @State private var showClearDataConfirmation = false
+    @State private var storageSizeText = "Calculating…"
 
     var body: some View {
         NavigationStack {
@@ -65,6 +66,10 @@ struct SettingsView: View {
                     LabeledContent("Places", value: "\(places.count)")
                     LabeledContent("Visits", value: "\(visits.count)")
                     LabeledContent("Total Tracked Time", value: totalTrackedTimeText)
+                    LabeledContent("Storage Used", value: storageSizeText)
+                        .onAppear { refreshStorageSize() }
+                        .onChange(of: places.count) { refreshStorageSize() }
+                        .onChange(of: visits.count) { refreshStorageSize() }
                 } header: {
                     Text("Data Storage")
                 } footer: {
@@ -127,6 +132,57 @@ struct SettingsView: View {
             modelContext.delete(place)
         }
         try? modelContext.save()
+    }
+
+    private func refreshStorageSize() {
+        storageSizeText = Self.calculateStorageSize()
+    }
+
+    private static func calculateStorageSize() -> String {
+        let fileManager = FileManager.default
+        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+            return "Unknown"
+        }
+
+        // SwiftData default store is at Application Support/default.store
+        let storeName = "default.store"
+        let storeURL = appSupport.appendingPathComponent(storeName)
+
+        // Sum the main store file and its SQLite WAL/SHM companions
+        let paths = [
+            storeURL.path,
+            storeURL.path + "-wal",
+            storeURL.path + "-shm"
+        ]
+        var totalBytes: Int64 = 0
+
+        for path in paths {
+            if let attrs = try? fileManager.attributesOfItem(atPath: path),
+               let size = attrs[.size] as? Int64 {
+                totalBytes += size
+            }
+        }
+
+        if totalBytes == 0 {
+            // Fallback: scan Application Support directory for any .store files
+            if let contents = try? fileManager.contentsOfDirectory(at: appSupport, includingPropertiesForKeys: [.fileSizeKey]) {
+                for file in contents {
+                    if let attrs = try? fileManager.attributesOfItem(atPath: file.path),
+                       let size = attrs[.size] as? Int64 {
+                        totalBytes += size
+                    }
+                }
+            }
+        }
+
+        return formatBytes(totalBytes)
+    }
+
+    private static func formatBytes(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 
     private var totalTrackedTimeText: String {
