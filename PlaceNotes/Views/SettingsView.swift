@@ -1,11 +1,17 @@
 import SwiftUI
+import SwiftData
 
 struct SettingsView: View {
+    @Environment(\.modelContext) private var modelContext
+    @Query private var places: [Place]
+    @Query private var visits: [Visit]
     @EnvironmentObject var settings: AppSettings
     @EnvironmentObject var trackingViewModel: TrackingViewModel
 
     @State private var showMinStayInput = false
     @State private var minStayInputText = ""
+    @State private var showClearDataConfirmation = false
+    @State private var storageSizeText = "Calculating…"
 
     var body: some View {
         NavigationStack {
@@ -56,12 +62,46 @@ struct SettingsView: View {
                     }
                 }
 
+                Section {
+                    LabeledContent("Places", value: "\(places.count)")
+                    LabeledContent("Visits", value: "\(visits.count)")
+                    LabeledContent("Total Tracked Time", value: totalTrackedTimeText)
+                    LabeledContent("Storage Used", value: storageSizeText)
+                        .onAppear { refreshStorageSize() }
+                        .onChange(of: places.count) { refreshStorageSize() }
+                        .onChange(of: visits.count) { refreshStorageSize() }
+                } header: {
+                    Text("Data Storage")
+                } footer: {
+                    Text("All data is stored on-device only.")
+                }
+
+                Section {
+                    Button(role: .destructive) {
+                        showClearDataConfirmation = true
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text("Delete All Data")
+                            Spacer()
+                        }
+                    }
+                    .disabled(places.isEmpty && visits.isEmpty)
+                }
+
                 Section("About") {
                     LabeledContent("Version", value: "1.0.0")
-                    LabeledContent("Storage", value: "On-device only")
                 }
             }
             .navigationTitle("Settings")
+            .alert("Delete All Data?", isPresented: $showClearDataConfirmation) {
+                Button("Delete All", role: .destructive) {
+                    clearAllData()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This will permanently delete all \(places.count) places and \(visits.count) visits. This cannot be undone.")
+            }
             .alert("Set Minimum Stay", isPresented: $showMinStayInput) {
                 TextField("Minutes", text: $minStayInputText)
                     .keyboardType(.numberPad)
@@ -82,5 +122,62 @@ struct SettingsView: View {
             return
         }
         settings.minStayMinutes = value
+    }
+
+    private func clearAllData() {
+        for visit in visits {
+            modelContext.delete(visit)
+        }
+        for place in places {
+            modelContext.delete(place)
+        }
+        try? modelContext.save()
+    }
+
+    private func refreshStorageSize() {
+        storageSizeText = estimateDataSize()
+    }
+
+    /// Estimates storage used by tracked places data only.
+    /// Each Place row: UUID (16B) + name ~50B + nickname ~50B + lat/lon 16B + category ~20B ≈ 152B
+    /// Each Visit row: UUID (16B) + 2 dates 16B + foreign key 16B ≈ 48B
+    /// SQLite overhead ~40% for indexes, page alignment, etc.
+    private func estimateDataSize() -> String {
+        let placeBytes = places.reduce(0) { total, place in
+            var bytes = 16  // UUID
+            bytes += (place.name.utf8.count)
+            bytes += (place.nickname?.utf8.count ?? 0)
+            bytes += 16     // latitude + longitude (Double x2)
+            bytes += (place.category?.utf8.count ?? 0)
+            return total + bytes
+        }
+
+        let visitBytes = visits.reduce(0) { total, _ in
+            // UUID + arrivalDate + departureDate + foreign key
+            total + 16 + 8 + 8 + 16
+        }
+
+        let rawBytes = placeBytes + visitBytes
+        // Account for SQLite overhead (indexes, page headers, alignment)
+        let estimatedBytes = Int64(Double(rawBytes) * 1.4)
+
+        if estimatedBytes == 0 {
+            return "0 KB"
+        }
+
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useBytes, .useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: max(estimatedBytes, 1))
+    }
+
+    private var totalTrackedTimeText: String {
+        let totalMinutes = places.reduce(0) { $0 + $1.totalTrackedMinutes }
+        if totalMinutes < 60 {
+            return "\(totalMinutes) min"
+        }
+        let hours = totalMinutes / 60
+        let mins = totalMinutes % 60
+        return mins > 0 ? "\(hours) hr \(mins) min" : "\(hours) hr"
     }
 }
