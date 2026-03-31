@@ -553,15 +553,25 @@ struct EmojiTextField: UIViewRepresentable {
             _text = text
         }
 
-        @objc func textChanged(_ sender: UITextField) {
-            // Keep only the last entered character (emoji)
-            if let value = sender.text, !value.isEmpty {
-                let last = String(value.suffix(1))
-                text = last
-                sender.text = last
-            } else {
-                text = ""
+        func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
+            // Allow deletions
+            if string.isEmpty { return true }
+            // Only allow emoji characters
+            return string.unicodeScalars.allSatisfy { scalar in
+                scalar.properties.isEmoji && scalar.properties.isEmojiPresentation
+                || scalar.properties.isEmoji && scalar.value > 0x238C
             }
+        }
+
+        @objc func textChanged(_ sender: UITextField) {
+            // Keep only the last emoji (handles multi-scalar emoji like flags/families)
+            guard let value = sender.text, !value.isEmpty else {
+                text = ""
+                return
+            }
+            let lastEmoji = String(value[value.index(before: value.endIndex)...])
+            text = lastEmoji
+            sender.text = lastEmoji
         }
 
         func textFieldDidBeginEditing(_ textField: UITextField) {
