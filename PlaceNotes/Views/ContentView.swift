@@ -12,9 +12,9 @@ struct ContentView: View {
                     Label("Tracking", systemImage: "location.fill")
                 }
 
-            FrequentPlacesView()
+            LogbookView()
                 .tabItem {
-                    Label("Places", systemImage: "mappin.and.ellipse")
+                    Label("Logbook", systemImage: "book.fill")
                 }
 
             FrequentPlacesMapView()
@@ -22,9 +22,9 @@ struct ContentView: View {
                     Label("Map", systemImage: "map.fill")
                 }
 
-            ReportView()
+            SearchPlacesView()
                 .tabItem {
-                    Label("Report", systemImage: "chart.bar.fill")
+                    Label("Search", systemImage: "magnifyingglass")
                 }
 
             SettingsView()

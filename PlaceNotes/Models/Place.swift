@@ -11,6 +11,8 @@ final class Place {
     var longitude: Double
     var category: String?
     var customEmoji: String?
+    var city: String?
+    var state: String?
 
     /// Returns nickname if set, otherwise the auto-detected name.
     var displayName: String {
@@ -51,13 +53,15 @@ final class Place {
         return PlaceCategorizer.emoji(for: category)
     }
 
-    init(name: String, latitude: Double, longitude: Double, category: String? = nil, nickname: String? = nil) {
+    init(name: String, latitude: Double, longitude: Double, category: String? = nil, nickname: String? = nil, city: String? = nil, state: String? = nil) {
         self.id = UUID()
         self.name = name
         self.nickname = nickname
         self.latitude = latitude
         self.longitude = longitude
         self.category = category
+        self.city = city
+        self.state = state
         self.visits = []
     }
 }

@@ -313,9 +313,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
         logger.info("No existing place within \(threshold) degrees — resolving name + category")
         let resolved = await resolvePlace(latitude: latitude, longitude: longitude)
-        let place = Place(name: resolved.name, latitude: latitude, longitude: longitude, category: resolved.category)
+        let place = Place(name: resolved.name, latitude: latitude, longitude: longitude, category: resolved.category, city: resolved.city, state: resolved.state)
         context.insert(place)
-        logger.notice("Created new place: \(resolved.name) (category: \(resolved.category ?? "none"), source: \(resolved.source))")
+        logger.notice("Created new place: \(resolved.name) (category: \(resolved.category ?? "none"), city: \(resolved.city ?? "none"), state: \(resolved.state ?? "none"), source: \(resolved.source))")
         return place
     }
 
@@ -324,22 +324,27 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private struct ResolvedPlace {
         let name: String
         let category: String?
+        let city: String?
+        let state: String?
         let source: String  // "mapkit" or "geocoder"
     }
 
-    /// Resolves a coordinate to a place name + category.
+    /// Resolves a coordinate to a place name + category + city/state.
     /// 1. First tries MKLocalSearch to find a nearby business/POI (e.g. "Walmart", "Costco").
     /// 2. Falls back to CLGeocoder for an address if no POI is found.
+    /// Always fetches city/state via reverse geocoding.
     private func resolvePlace(latitude: Double, longitude: Double) async -> ResolvedPlace {
+        // Always fetch city/state from reverse geocoding
+        let geoInfo = await reverseGeocodeDetails(latitude: latitude, longitude: longitude)
+
         // Step 1: Try to find a named business/POI via MapKit
         if let poi = await searchNearbyPOI(latitude: latitude, longitude: longitude) {
-            return poi
+            return ResolvedPlace(name: poi.name, category: poi.category, city: geoInfo.city, state: geoInfo.state, source: poi.source)
         }
 
         // Step 2: Fall back to reverse geocoding for address + separate categorization
-        let address = await reverseGeocode(latitude: latitude, longitude: longitude)
         let categoryResult = await PlaceCategorizer.categorize(latitude: latitude, longitude: longitude)
-        return ResolvedPlace(name: address, category: categoryResult?.label, source: "geocoder")
+        return ResolvedPlace(name: geoInfo.name, category: categoryResult?.label, city: geoInfo.city, state: geoInfo.state, source: "geocoder")
     }
 
     /// Searches for the nearest named business/POI using coordinate-based search.
@@ -388,7 +393,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
                     logger.debug("  runner-up: \(runnerUp.name) (\(Int(runnerUp.distance))m)")
                 }
 
-                return ResolvedPlace(name: best.name, category: category, source: "mapkit")
+                return ResolvedPlace(name: best.name, category: category, city: nil, state: nil, source: "mapkit")
             }
 
             logger.debug("No MapKit POI within \(Int(searchRadius))m of (\(latitude), \(longitude))")
@@ -399,8 +404,14 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         return nil
     }
 
-    /// Falls back to CLGeocoder for an address-based name.
-    private func reverseGeocode(latitude: Double, longitude: Double) async -> String {
+    private struct GeoDetails {
+        let name: String
+        let city: String?
+        let state: String?
+    }
+
+    /// Reverse geocodes a coordinate to get name, city, and state.
+    private func reverseGeocodeDetails(latitude: Double, longitude: Double) async -> GeoDetails {
         let geocoder = CLGeocoder()
         let location = CLLocation(latitude: latitude, longitude: longitude)
 
@@ -412,12 +423,14 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
                     ?? placemark.subLocality
                     ?? placemark.locality
                     ?? "Unknown Place"
-                logger.debug("Reverse geocoded (\(latitude), \(longitude)) -> \(name)")
-                return name
+                let city = placemark.locality
+                let state = placemark.administrativeArea
+                logger.debug("Reverse geocoded (\(latitude), \(longitude)) -> \(name), city: \(city ?? "nil"), state: \(state ?? "nil")")
+                return GeoDetails(name: name, city: city, state: state)
             }
         } catch {
             logger.error("Geocoding failed: \(error.localizedDescription)")
         }
-        return "Unknown Place"
+        return GeoDetails(name: "Unknown Place", city: nil, state: nil)
     }
 }
