@@ -17,17 +17,19 @@ final class MockLocationProvider {
         let latitude: Double
         let longitude: Double
         let category: String
+        let city: String
+        let state: String
     }
 
     static let samplePlaces: [MockPlace] = [
-        MockPlace(name: "Blue Bottle Coffee", latitude: 37.7830, longitude: -122.4090, category: "Cafe"),
-        MockPlace(name: "Whole Foods Market", latitude: 37.7850, longitude: -122.4070, category: "Grocery"),
-        MockPlace(name: "Barry's Bootcamp", latitude: 37.7870, longitude: -122.4050, category: "Gym"),
-        MockPlace(name: "Nobu Restaurant", latitude: 37.7860, longitude: -122.3900, category: "Restaurant"),
-        MockPlace(name: "San Francisco Library", latitude: 37.7790, longitude: -122.4160, category: "Library"),
-        MockPlace(name: "Chase Bank", latitude: 37.7900, longitude: -122.4000, category: "Bank"),
-        MockPlace(name: "Golden Gate Park", latitude: 37.7694, longitude: -122.4862, category: "Park"),
-        MockPlace(name: "UCSF Medical Center", latitude: 37.7631, longitude: -122.4580, category: "Hospital"),
+        MockPlace(name: "Blue Bottle Coffee", latitude: 37.7830, longitude: -122.4090, category: "Cafe", city: "San Francisco", state: "CA"),
+        MockPlace(name: "Whole Foods Market", latitude: 37.7850, longitude: -122.4070, category: "Grocery", city: "San Francisco", state: "CA"),
+        MockPlace(name: "Barry's Bootcamp", latitude: 37.7870, longitude: -122.4050, category: "Gym", city: "San Francisco", state: "CA"),
+        MockPlace(name: "Nobu Restaurant", latitude: 37.7860, longitude: -122.3900, category: "Restaurant", city: "San Francisco", state: "CA"),
+        MockPlace(name: "San Francisco Library", latitude: 37.7790, longitude: -122.4160, category: "Library", city: "San Francisco", state: "CA"),
+        MockPlace(name: "Chase Bank", latitude: 37.7900, longitude: -122.4000, category: "Bank", city: "San Francisco", state: "CA"),
+        MockPlace(name: "Golden Gate Park", latitude: 37.7694, longitude: -122.4862, category: "Park", city: "San Francisco", state: "CA"),
+        MockPlace(name: "UCSF Medical Center", latitude: 37.7631, longitude: -122.4580, category: "Hospital", city: "San Francisco", state: "CA"),
     ]
 
     /// Seeds the database with sample places and visits spread over the past 30 days.
@@ -48,14 +50,16 @@ final class MockLocationProvider {
                 name: mockPlace.name,
                 latitude: mockPlace.latitude,
                 longitude: mockPlace.longitude,
-                category: mockPlace.category
+                category: mockPlace.category,
+                city: mockPlace.city,
+                state: mockPlace.state
             )
             context.insert(place)
 
-            // Generate random visits over the past 30 days
-            let visitCount = Int.random(in: 3...15)
+            // Generate random visits over the past 90 days (spans multiple months)
+            let visitCount = Int.random(in: 5...20)
             for _ in 0..<visitCount {
-                let daysAgo = Int.random(in: 0...29)
+                let daysAgo = Int.random(in: 0...89)
                 let hour = Int.random(in: 6...22)
                 let minute = Int.random(in: 0...59)
                 let durationMinutes = Int.random(in: 5...180)
