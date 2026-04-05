@@ -203,6 +203,7 @@ struct PlaceRankingRow: View {
                 Text("\(ranking.totalMinutes) min")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                FlameIndicatorView(intensity: FlameIntensity(visitCount: ranking.qualifiedStays))
             }
         }
         .padding(.vertical, 2)
