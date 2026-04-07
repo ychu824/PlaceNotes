@@ -252,6 +252,7 @@ struct PlaceDetailSheet: View {
     @State private var showRenameDialog = false
     @State private var renameText = ""
     @State private var showCategoryPicker = false
+    @State private var showPlaceDetail = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -288,6 +289,15 @@ struct PlaceDetailSheet: View {
 
             Spacer()
 
+            Button {
+                showPlaceDetail = true
+            } label: {
+                Label("Journal & Photos", systemImage: "book.pages")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+
             HStack(spacing: 12) {
                 Button {
                     renameText = place.displayName
@@ -322,6 +332,16 @@ struct PlaceDetailSheet: View {
         .sheet(isPresented: $showCategoryPicker) {
             CategoryPickerSheet(place: place)
                 .presentationDetents([.medium, .large])
+        }
+        .fullScreenCover(isPresented: $showPlaceDetail) {
+            NavigationStack {
+                PlaceDetailView(place: place)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Done") { showPlaceDetail = false }
+                        }
+                    }
+            }
         }
         .alert("Rename Place", isPresented: $showRenameDialog) {
             TextField("Name", text: $renameText)

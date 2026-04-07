@@ -25,6 +25,9 @@ final class Place {
     @Relationship(deleteRule: .cascade, inverse: \Visit.place)
     var visits: [Visit]
 
+    @Relationship(deleteRule: .cascade, inverse: \JournalEntry.place)
+    var journalEntries: [JournalEntry]
+
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
@@ -63,5 +66,6 @@ final class Place {
         self.city = city
         self.state = state
         self.visits = []
+        self.journalEntries = []
     }
 }

@@ -96,7 +96,12 @@ private struct MonthSection: View {
         DisclosureGroup {
             ForEach(visits) { visit in
                 if let place = visit.place {
-                    LogbookVisitRow(visit: visit, place: place)
+                    NavigationLink {
+                        PlaceDetailView(place: place)
+                    } label: {
+                        LogbookVisitRow(visit: visit, place: place)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
         } label: {

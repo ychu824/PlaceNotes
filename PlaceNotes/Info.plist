@@ -35,6 +35,8 @@
     <string>PlaceNotes tracks the places you visit to generate summaries and reports about your frequent locations.</string>
     <key>NSLocationWhenInUseUsageDescription</key>
     <string>PlaceNotes needs your location to track the places you visit.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>PlaceNotes uses your photo library to attach photos to places you visit and display them in your journal entries.</string>
     <key>UIBackgroundModes</key>
     <array>
         <string>location</string>
