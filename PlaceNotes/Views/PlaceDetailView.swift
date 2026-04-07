@@ -1,5 +1,4 @@
 import SwiftUI
-import Photos
 
 struct PlaceDetailView: View {
     @Environment(\.modelContext) private var modelContext
@@ -9,13 +8,12 @@ struct PlaceDetailView: View {
     @State private var entryToEdit: JournalEntry?
     @State private var entryToDelete: JournalEntry?
     @State private var showDeleteConfirmation = false
-    @State private var photoLibraryAuthorized = false
 
     private var sortedEntries: [JournalEntry] {
         place.journalEntries.sorted { $0.date > $1.date }
     }
 
-    private var allPhotoIdentifiers: [String] {
+    private var allPhotoFilenames: [String] {
         place.journalEntries.flatMap { $0.photoAssetIdentifiers }
     }
 
@@ -31,7 +29,7 @@ struct PlaceDetailView: View {
                 Divider()
 
                 // Photos overview
-                if !allPhotoIdentifiers.isEmpty {
+                if !allPhotoFilenames.isEmpty {
                     photosSection
                     Divider()
                 }
@@ -71,9 +69,6 @@ struct PlaceDetailView: View {
             }
         } message: {
             Text("This journal entry will be permanently deleted.")
-        }
-        .onAppear {
-            checkPhotoLibraryAccess()
         }
     }
 
@@ -151,7 +146,7 @@ struct PlaceDetailView: View {
             Text("Photos")
                 .font(.headline)
 
-            PhotoGridView(assetIdentifiers: Array(allPhotoIdentifiers.prefix(6)))
+            PhotoGridView(photoFilenames: Array(allPhotoFilenames.prefix(6)))
         }
     }
 
@@ -198,21 +193,6 @@ struct PlaceDetailView: View {
         }
     }
 
-    private func checkPhotoLibraryAccess() {
-        let status = PHPhotoLibrary.authorizationStatus(for: .readWrite)
-        switch status {
-        case .authorized, .limited:
-            photoLibraryAuthorized = true
-        case .notDetermined:
-            PHPhotoLibrary.requestAuthorization(for: .readWrite) { newStatus in
-                DispatchQueue.main.async {
-                    photoLibraryAuthorized = newStatus == .authorized || newStatus == .limited
-                }
-            }
-        default:
-            photoLibraryAuthorized = false
-        }
-    }
 }
 
 // MARK: - Journal Entry Card
@@ -226,7 +206,7 @@ struct JournalEntryCard: View {
         VStack(alignment: .leading, spacing: 12) {
             // Photos
             if !entry.photoAssetIdentifiers.isEmpty {
-                PhotoGridView(assetIdentifiers: entry.photoAssetIdentifiers)
+                PhotoGridView(photoFilenames: entry.photoAssetIdentifiers)
             }
 
             // Title

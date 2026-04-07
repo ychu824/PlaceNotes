@@ -1,6 +1,5 @@
 import SwiftUI
 import PhotosUI
-import Photos
 
 struct JournalEntryEditorView: View {
     @Environment(\.modelContext) private var modelContext
@@ -11,7 +10,7 @@ struct JournalEntryEditorView: View {
 
     @State private var title: String = ""
     @State private var bodyText: String = ""
-    @State private var photoIdentifiers: [String] = []
+    @State private var photoFilenames: [String] = []
     @State private var selectedItems: [PhotosPickerItem] = []
     @State private var isLoadingPhotos = false
 
@@ -43,8 +42,9 @@ struct JournalEntryEditorView: View {
                                 .padding()
                         }
 
-                        PhotoGridView(assetIdentifiers: photoIdentifiers) { identifier in
-                            photoIdentifiers.removeAll { $0 == identifier }
+                        PhotoGridView(photoFilenames: photoFilenames) { filename in
+                            photoFilenames.removeAll { $0 == filename }
+                            PhotoStorage.deleteImage(filename: filename)
                         }
                     }
 
@@ -80,7 +80,7 @@ struct JournalEntryEditorView: View {
                         saveEntry()
                         dismiss()
                     }
-                    .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty && bodyText.trimmingCharacters(in: .whitespaces).isEmpty && photoIdentifiers.isEmpty)
+                    .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty && bodyText.trimmingCharacters(in: .whitespaces).isEmpty && photoFilenames.isEmpty)
                 }
             }
             .onChange(of: selectedItems) { _, newItems in
@@ -92,22 +92,25 @@ struct JournalEntryEditorView: View {
                 if let entry = existingEntry {
                     title = entry.title
                     bodyText = entry.body
-                    photoIdentifiers = entry.photoAssetIdentifiers
+                    photoFilenames = entry.photoAssetIdentifiers
                 }
             }
         }
     }
 
     private func loadSelectedPhotos(_ items: [PhotosPickerItem]) async {
+        guard !items.isEmpty else { return }
         isLoadingPhotos = true
-        defer { isLoadingPhotos = false }
 
         for item in items {
-            if let identifier = item.itemIdentifier,
-               !photoIdentifiers.contains(identifier) {
-                photoIdentifiers.append(identifier)
+            if let data = try? await item.loadTransferable(type: Data.self),
+               let uiImage = UIImage(data: data),
+               let filename = PhotoStorage.saveImage(uiImage) {
+                photoFilenames.append(filename)
             }
         }
+
+        isLoadingPhotos = false
         selectedItems = []
     }
 
@@ -116,14 +119,19 @@ struct JournalEntryEditorView: View {
         let trimmedBody = bodyText.trimmingCharacters(in: .whitespaces)
 
         if let entry = existingEntry {
+            // Delete removed photos from disk
+            let removed = Set(entry.photoAssetIdentifiers).subtracting(photoFilenames)
+            for filename in removed {
+                PhotoStorage.deleteImage(filename: filename)
+            }
             entry.title = trimmedTitle
             entry.body = trimmedBody
-            entry.photoAssetIdentifiers = photoIdentifiers
+            entry.photoAssetIdentifiers = photoFilenames
         } else {
             let entry = JournalEntry(
                 title: trimmedTitle,
                 body: trimmedBody,
-                photoAssetIdentifiers: photoIdentifiers
+                photoAssetIdentifiers: photoFilenames
             )
             entry.place = place
             modelContext.insert(entry)

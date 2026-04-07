@@ -1,8 +1,7 @@
 import SwiftUI
-import Photos
 
 struct PhotoGridView: View {
-    let assetIdentifiers: [String]
+    let photoFilenames: [String]
     var onRemove: ((String) -> Void)?
 
     private let columns = [
@@ -11,19 +10,19 @@ struct PhotoGridView: View {
     ]
 
     var body: some View {
-        if assetIdentifiers.isEmpty {
+        if photoFilenames.isEmpty {
             EmptyView()
         } else {
             LazyVGrid(columns: columns, spacing: 4) {
-                ForEach(assetIdentifiers, id: \.self) { identifier in
-                    PhotoThumbnailView(assetIdentifier: identifier)
+                ForEach(photoFilenames, id: \.self) { filename in
+                    PhotoThumbnailView(filename: filename)
                         .aspectRatio(1, contentMode: .fill)
                         .clipped()
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                         .overlay(alignment: .topTrailing) {
                             if let onRemove {
                                 Button {
-                                    onRemove(identifier)
+                                    onRemove(filename)
                                 } label: {
                                     Image(systemName: "xmark.circle.fill")
                                         .font(.title3)
@@ -40,7 +39,7 @@ struct PhotoGridView: View {
 }
 
 struct PhotoThumbnailView: View {
-    let assetIdentifier: String
+    let filename: String
     @State private var image: UIImage?
 
     var body: some View {
@@ -58,76 +57,42 @@ struct PhotoThumbnailView: View {
                     }
             }
         }
-        .task {
-            image = await loadThumbnail()
-        }
-    }
-
-    private func loadThumbnail() async -> UIImage? {
-        let result = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil)
-        guard let asset = result.firstObject else { return nil }
-
-        let size = CGSize(width: 400, height: 400)
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .opportunistic
-        options.isNetworkAccessAllowed = true
-        options.resizeMode = .fast
-
-        return await withCheckedContinuation { continuation in
-            PHImageManager.default().requestImage(
-                for: asset,
-                targetSize: size,
-                contentMode: .aspectFill,
-                options: options
-            ) { image, info in
-                let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
-                if !isDegraded {
-                    continuation.resume(returning: image)
-                }
-            }
+        .onAppear {
+            image = PhotoStorage.loadImage(filename: filename)
         }
     }
 }
 
-struct FullPhotoView: View {
-    let assetIdentifier: String
-    @State private var image: UIImage?
+// MARK: - Photo Storage
 
-    var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-            } else {
-                ProgressView()
-            }
-        }
-        .task {
-            image = await loadFullImage()
+enum PhotoStorage {
+    private static var photosDirectory: URL {
+        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("JournalPhotos", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    static func saveImage(_ image: UIImage) -> String? {
+        let filename = UUID().uuidString + ".jpg"
+        guard let data = image.jpegData(compressionQuality: 0.7) else { return nil }
+        let url = photosDirectory.appendingPathComponent(filename)
+        do {
+            try data.write(to: url)
+            return filename
+        } catch {
+            return nil
         }
     }
 
-    private func loadFullImage() async -> UIImage? {
-        let result = PHAsset.fetchAssets(withLocalIdentifiers: [assetIdentifier], options: nil)
-        guard let asset = result.firstObject else { return nil }
+    static func loadImage(filename: String) -> UIImage? {
+        let url = photosDirectory.appendingPathComponent(filename)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return UIImage(data: data)
+    }
 
-        let options = PHImageRequestOptions()
-        options.deliveryMode = .highQualityFormat
-        options.isNetworkAccessAllowed = true
-
-        return await withCheckedContinuation { continuation in
-            PHImageManager.default().requestImage(
-                for: asset,
-                targetSize: PHImageManagerMaximumSize,
-                contentMode: .aspectFit,
-                options: options
-            ) { image, info in
-                let isDegraded = (info?[PHImageResultIsDegradedKey] as? Bool) ?? false
-                if !isDegraded {
-                    continuation.resume(returning: image)
-                }
-            }
-        }
+    static func deleteImage(filename: String) {
+        let url = photosDirectory.appendingPathComponent(filename)
+        try? FileManager.default.removeItem(at: url)
     }
 }
