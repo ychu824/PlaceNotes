@@ -5,9 +5,9 @@ import SwiftData
 /// cleans up mock data when switching to release.
 final class MockLocationProvider {
 
-    private static let seededKey = "mockDataSeeded"
+    private static let seededKey = "mockDataSeeded_debug"
 
-    /// Whether mock data has been seeded into the current database.
+    /// Whether mock data has been seeded into the current debug database.
     static var hasSeededData: Bool {
         UserDefaults.standard.bool(forKey: seededKey)
     }
