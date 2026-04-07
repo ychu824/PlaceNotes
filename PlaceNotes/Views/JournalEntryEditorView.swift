@@ -10,6 +10,7 @@ struct JournalEntryEditorView: View {
 
     @State private var title: String = ""
     @State private var bodyText: String = ""
+    @State private var entryDate: Date = Date()
     @State private var photoFilenames: [String] = []
     @State private var selectedItems: [PhotosPickerItem] = []
     @State private var isLoadingPhotos = false
@@ -47,6 +48,12 @@ struct JournalEntryEditorView: View {
                             PhotoStorage.deleteImage(filename: filename)
                         }
                     }
+
+                    Divider()
+
+                    // Date
+                    DatePicker("Date", selection: $entryDate, displayedComponents: [.date])
+                        .datePickerStyle(.compact)
 
                     Divider()
 
@@ -92,6 +99,7 @@ struct JournalEntryEditorView: View {
                 if let entry = existingEntry {
                     title = entry.title
                     bodyText = entry.body
+                    entryDate = entry.date
                     photoFilenames = entry.photoAssetIdentifiers
                 }
             }
@@ -126,11 +134,13 @@ struct JournalEntryEditorView: View {
             }
             entry.title = trimmedTitle
             entry.body = trimmedBody
+            entry.date = entryDate
             entry.photoAssetIdentifiers = photoFilenames
         } else {
             let entry = JournalEntry(
                 title: trimmedTitle,
                 body: trimmedBody,
+                date: entryDate,
                 photoAssetIdentifiers: photoFilenames
             )
             entry.place = place
