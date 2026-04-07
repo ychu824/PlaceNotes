@@ -181,21 +181,33 @@ struct ClusterItem: MapAnnotationItem {
 struct PlaceAnnotationView: View {
     let ranking: PlaceRanking
 
+    private var flameIntensity: FlameIntensity {
+        FlameIntensity(visitCount: ranking.qualifiedStays)
+    }
+
     var body: some View {
         VStack(spacing: 2) {
-            Text(ranking.place.emoji)
-                .font(.title)
-                .frame(width: 44, height: 44)
-                .background(.white)
-                .clipShape(Circle())
-                .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+            ZStack {
+                FlameEffectView(intensity: flameIntensity)
+
+                Text(ranking.place.emoji)
+                    .font(.title)
+                    .frame(width: 44, height: 44)
+                    .background(.white)
+                    .clipShape(Circle())
+                    .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+                    .overlay(
+                        Circle()
+                            .strokeBorder(flameIntensity.glowColor.opacity(flameIntensity == .none ? 0 : 0.6), lineWidth: 2)
+                    )
+            }
 
             Text("\(ranking.qualifiedStays)")
                 .font(.caption2.bold())
                 .foregroundStyle(.white)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
-                .background(Color.accentColor)
+                .background(flameIntensity == .none ? Color.accentColor : flameIntensity.glowColor)
                 .clipShape(Capsule())
         }
     }

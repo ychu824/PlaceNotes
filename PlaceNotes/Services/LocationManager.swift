@@ -41,7 +41,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         clManager.allowsBackgroundLocationUpdates = true
         clManager.pausesLocationUpdatesAutomatically = false
         clManager.desiredAccuracy = kCLLocationAccuracyBest
-        clManager.distanceFilter = kCLDistanceFilterNone
+        clManager.distanceFilter = 10 // meters — frequent enough for dwell detection without flooding the main thread
         authorizationStatus = clManager.authorizationStatus
         logger.info("LocationManager initialized, auth status: \(self.authorizationStatus.rawValue), minStay: \(settings.minStayMinutes)min")
     }
@@ -280,6 +280,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         lastRecordedDwellLocation = nil
     }
 
+    
     // MARK: - Duplicate Detection
 
     @MainActor
