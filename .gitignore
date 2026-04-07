@@ -10,8 +10,8 @@ xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcuserdata/
 
-# Xcode project user-specific data (project itself is tracked)
-PlaceNotes.xcodeproj/xcuserdata/
+# Generated Xcode project (regenerate with `xcodegen`)
+PlaceNotes.xcodeproj/
 
 # Swift Package Manager
 .build/
