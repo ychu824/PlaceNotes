@@ -1,12 +1,37 @@
 import Foundation
 import SwiftData
 
+/// A lightweight alternative place candidate stored as JSON on a Visit.
+struct PlaceCandidate: Codable, Identifiable {
+    var id: UUID = UUID()
+    let name: String
+    let latitude: Double
+    let longitude: Double
+    let category: String?
+    let city: String?
+    let state: String?
+    let distanceMeters: Double
+}
+
 @Model
 final class Visit {
     var id: UUID
     var arrivalDate: Date
     var departureDate: Date?
     var place: Place?
+
+    /// JSON-encoded array of PlaceCandidate — the runner-up places from POI search.
+    var alternativePlacesData: Data?
+
+    var alternativePlaces: [PlaceCandidate] {
+        get {
+            guard let data = alternativePlacesData else { return [] }
+            return (try? JSONDecoder().decode([PlaceCandidate].self, from: data)) ?? []
+        }
+        set {
+            alternativePlacesData = try? JSONEncoder().encode(newValue)
+        }
+    }
 
     var durationMinutes: Int {
         let end = departureDate ?? Date()
