@@ -6,10 +6,18 @@ import SwiftData
 final class MockLocationProvider {
 
     private static let seededKey = "mockDataSeeded_debug"
+    /// Bump this version to force a re-seed (e.g. after adding new mock fields).
+    private static let seedVersion = 2
+    private static let seedVersionKey = "mockDataSeedVersion"
 
     /// Whether mock data has been seeded into the current debug database.
     static var hasSeededData: Bool {
         UserDefaults.standard.bool(forKey: seededKey)
+    }
+
+    /// Whether the seeded data is up-to-date with the current seed version.
+    static var isCurrentVersion: Bool {
+        UserDefaults.standard.integer(forKey: seedVersionKey) >= seedVersion
     }
 
     struct MockPlace {
@@ -36,6 +44,11 @@ final class MockLocationProvider {
     /// Only runs once per install and only in DEBUG builds.
     @MainActor
     static func seedIfNeeded(context: ModelContext) {
+        // Re-seed if version changed (e.g. new mock fields added)
+        if hasSeededData && !isCurrentVersion {
+            purgeIfNeeded(context: context)
+        }
+
         guard !hasSeededData else { return }
 
         let descriptor = FetchDescriptor<Place>()
@@ -73,13 +86,32 @@ final class MockLocationProvider {
                 let departure = arrival.addingTimeInterval(Double(durationMinutes) * 60)
 
                 let visit = Visit(arrivalDate: arrival, departureDate: departure, place: place)
+
+                // Give ~half the visits some alternative place candidates so
+                // the "Wrong Place?" feature can be tested in debug builds.
+                if Bool.random() {
+                    let others = samplePlaces.filter { $0.name != mockPlace.name }.shuffled()
+                    visit.alternativePlaces = Array(others.prefix(2)).map { alt in
+                        PlaceCandidate(
+                            name: alt.name,
+                            latitude: alt.latitude,
+                            longitude: alt.longitude,
+                            category: alt.category,
+                            city: alt.city,
+                            state: alt.state,
+                            distanceMeters: Double.random(in: 30...200)
+                        )
+                    }
+                }
+
                 context.insert(visit)
             }
         }
 
         try? context.save()
         UserDefaults.standard.set(true, forKey: seededKey)
-        print("[MockLocationProvider] Seeded \(samplePlaces.count) places with sample visits")
+        UserDefaults.standard.set(seedVersion, forKey: seedVersionKey)
+        print("[MockLocationProvider] Seeded \(samplePlaces.count) places with sample visits (v\(seedVersion))")
     }
 
     /// Known mock place names used to detect legacy seeded data
