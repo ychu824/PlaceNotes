@@ -1,11 +1,15 @@
 import Foundation
 import SwiftData
 
-struct PlaceRanking: Identifiable {
+struct PlaceRanking: Identifiable, Equatable {
     let id = UUID()
     let place: Place
     let qualifiedStays: Int
     let totalMinutes: Int
+
+    static func == (lhs: PlaceRanking, rhs: PlaceRanking) -> Bool {
+        lhs.place.id == rhs.place.id && lhs.qualifiedStays == rhs.qualifiedStays && lhs.totalMinutes == rhs.totalMinutes
+    }
 }
 
 struct MonthlyReport: Identifiable {

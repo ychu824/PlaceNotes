@@ -67,10 +67,11 @@ struct FrequentPlacesMapView: View {
             .navigationBarTitleDisplayMode(.inline)
             .onAppear {
                 viewModel.refresh(places: places)
-                rebuildAnnotations()
             }
             .onChange(of: places) { _, newPlaces in
                 viewModel.refresh(places: newPlaces)
+            }
+            .onChange(of: viewModel.monthlyPlaces) { _, _ in
                 rebuildAnnotations()
             }
         }
@@ -82,7 +83,7 @@ struct FrequentPlacesMapView: View {
     private func rebuildAnnotations() {
         let rankings = Array(viewModel.monthlyPlaces.prefix(50))
         guard let region = visibleRegion else {
-            cachedAnnotations = rankings.map { SingleItem(ranking: $0) }
+            // Don't render all annotations unclustered before the map reports a region
             return
         }
 
