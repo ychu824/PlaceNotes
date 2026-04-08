@@ -7,10 +7,12 @@ struct FrequentPlacesMapView: View {
     @Query private var places: [Place]
     @StateObject private var viewModel = PlacesViewModel()
     @EnvironmentObject private var locationManager: LocationManager
+    @EnvironmentObject private var trackingViewModel: TrackingViewModel
     @State private var selectedPlace: Place?
     @State private var cameraPosition: MapCameraPosition = .automatic
     @State private var visibleRegion: MKCoordinateRegion?
     @State private var cachedAnnotations: [any MapAnnotationItem] = []
+    @State private var showTrackingAlert = false
 
     var body: some View {
         NavigationStack {
@@ -73,6 +75,14 @@ struct FrequentPlacesMapView: View {
                 viewModel.refresh(places: newPlaces)
                 rebuildAnnotations()
             }
+            .alert("Tracking Disabled", isPresented: $showTrackingAlert) {
+                Button("Enable Tracking") {
+                    trackingViewModel.enable()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Enable tracking to see your current location on the map.")
+            }
         }
     }
 
@@ -127,6 +137,11 @@ struct FrequentPlacesMapView: View {
     }
 
     private func goToCurrentLocation() {
+        guard trackingViewModel.trackingManager.state.status != .disabled else {
+            showTrackingAlert = true
+            return
+        }
+
         if let coordinate = locationManager.userLocation {
             withAnimation {
                 cameraPosition = .region(MKCoordinateRegion(
