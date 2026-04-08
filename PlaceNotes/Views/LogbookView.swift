@@ -89,22 +89,28 @@ private struct AlternativePlacePicker: View {
             List {
                 if let place = visit.place {
                     Section("Current") {
-                        HStack {
-                            Image(systemName: PlaceCategorizer.icon(for: place.category))
-                                .foregroundStyle(Color.accentColor)
-                                .frame(width: 28)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(place.displayName)
-                                    .font(.body.weight(.medium))
-                                if let category = place.category {
-                                    Text(category)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                        Button {
+                            confirmPlace()
+                        } label: {
+                            HStack {
+                                Image(systemName: PlaceCategorizer.icon(for: place.category))
+                                    .foregroundStyle(Color.accentColor)
+                                    .frame(width: 28)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(place.displayName)
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                    if let category = place.category {
+                                        Text(category)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
+                                Spacer()
+                                Text("Confirm")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(Color.accentColor)
                             }
-                            Spacer()
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(Color.accentColor)
                         }
                     }
                 }
@@ -156,6 +162,12 @@ private struct AlternativePlacePicker: View {
             }
         }
         .presentationDetents([.medium])
+    }
+
+    private func confirmPlace() {
+        visit.alternativePlacesData = nil
+        try? modelContext.save()
+        dismiss()
     }
 
     private func reassignVisit(to candidate: PlaceCandidate) {
