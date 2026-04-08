@@ -5,6 +5,7 @@ struct LogbookView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var places: [Place]
     @EnvironmentObject var settings: AppSettings
+    @State private var visitForAlternatives: Visit?
 
     private var groupedVisits: [(year: Int, months: [(month: Int, visits: [Visit])])] {
         let minStay = settings.minStayMinutes
@@ -51,7 +52,10 @@ struct LogbookView: View {
                                     MonthSection(
                                         year: yearGroup.year,
                                         month: monthGroup.month,
-                                        visits: monthGroup.visits
+                                        visits: monthGroup.visits,
+                                        onPickAlternative: { visit in
+                                            visitForAlternatives = visit
+                                        }
                                     )
                                 }
                             } header: {
@@ -66,7 +70,132 @@ struct LogbookView: View {
                 }
             }
             .navigationTitle("Logbook")
+            .sheet(item: $visitForAlternatives) { visit in
+                AlternativePlacePicker(visit: visit)
+            }
         }
+    }
+}
+
+// MARK: - Alternative Place Picker
+
+private struct AlternativePlacePicker: View {
+    @Environment(\.modelContext) private var modelContext
+    @Environment(\.dismiss) private var dismiss
+    let visit: Visit
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if let place = visit.place {
+                    Section("Current") {
+                        Button {
+                            confirmPlace()
+                        } label: {
+                            HStack {
+                                Image(systemName: PlaceCategorizer.icon(for: place.category))
+                                    .foregroundStyle(Color.accentColor)
+                                    .frame(width: 28)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(place.displayName)
+                                        .font(.body.weight(.medium))
+                                        .foregroundStyle(.primary)
+                                    if let category = place.category {
+                                        Text(category)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                Spacer()
+                                Text("Confirm")
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(Color.accentColor)
+                            }
+                        }
+                    }
+                }
+
+                if !visit.alternativePlaces.isEmpty {
+                    Section("Did you mean?") {
+                        ForEach(visit.alternativePlaces) { candidate in
+                            Button {
+                                reassignVisit(to: candidate)
+                            } label: {
+                                HStack {
+                                    Image(systemName: PlaceCategorizer.icon(for: candidate.category))
+                                        .foregroundStyle(.secondary)
+                                        .frame(width: 28)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(candidate.name)
+                                            .font(.body.weight(.medium))
+                                            .foregroundStyle(.primary)
+                                        HStack(spacing: 6) {
+                                            if let category = candidate.category {
+                                                Text(category)
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            Text("\(Int(candidate.distanceMeters))m away")
+                                                .font(.caption)
+                                                .foregroundStyle(.tertiary)
+                                        }
+                                    }
+                                    Spacer()
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    ContentUnavailableView(
+                        "No Alternatives",
+                        systemImage: "mappin.slash",
+                        description: Text("No other nearby places were found when this visit was recorded.")
+                    )
+                }
+            }
+            .navigationTitle("Wrong Place?")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func confirmPlace() {
+        visit.alternativePlacesData = nil
+        try? modelContext.save()
+        dismiss()
+    }
+
+    private func reassignVisit(to candidate: PlaceCandidate) {
+        let threshold = 0.0005
+        let descriptor = FetchDescriptor<Place>()
+        let allPlaces = (try? modelContext.fetch(descriptor)) ?? []
+
+        let place: Place
+        if let existing = allPlaces.first(where: {
+            abs($0.latitude - candidate.latitude) < threshold && abs($0.longitude - candidate.longitude) < threshold
+        }) {
+            place = existing
+        } else {
+            place = Place(
+                name: candidate.name,
+                latitude: candidate.latitude,
+                longitude: candidate.longitude,
+                category: candidate.category,
+                city: candidate.city,
+                state: candidate.state
+            )
+            modelContext.insert(place)
+        }
+
+        visit.place = place
+        visit.alternativePlacesData = nil
+        try? modelContext.save()
+        dismiss()
     }
 }
 
@@ -74,6 +203,7 @@ private struct MonthSection: View {
     let year: Int
     let month: Int
     let visits: [Visit]
+    var onPickAlternative: ((Visit) -> Void)?
 
     private var monthName: String {
         let formatter = DateFormatter()
@@ -99,7 +229,9 @@ private struct MonthSection: View {
                     NavigationLink {
                         PlaceDetailView(place: place)
                     } label: {
-                        LogbookVisitRow(visit: visit, place: place)
+                        LogbookVisitRow(visit: visit, place: place) {
+                            onPickAlternative?(visit)
+                        }
                     }
                     .buttonStyle(.plain)
                 }
@@ -125,6 +257,7 @@ private struct MonthSection: View {
 private struct LogbookVisitRow: View {
     let visit: Visit
     let place: Place
+    var onPickAlternative: (() -> Void)?
 
     private var dateString: String {
         let formatter = DateFormatter()
@@ -143,45 +276,59 @@ private struct LogbookVisitRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            if place.customEmoji != nil {
-                Text(place.emoji)
-                    .font(.title3)
-                    .frame(width: 28)
-            } else {
-                Image(systemName: PlaceCategorizer.icon(for: place.category))
-                    .font(.title3)
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 28)
-            }
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                if place.customEmoji != nil {
+                    Text(place.emoji)
+                        .font(.title3)
+                        .frame(width: 28)
+                } else {
+                    Image(systemName: PlaceCategorizer.icon(for: place.category))
+                        .font(.title3)
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 28)
+                }
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(place.displayName)
-                    .font(.body.weight(.medium))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(place.displayName)
+                        .font(.body.weight(.medium))
 
-                HStack(spacing: 8) {
-                    if let category = place.category, !category.isEmpty {
-                        Text(category)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        if let category = place.category, !category.isEmpty {
+                            Text(category)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let city = place.city {
+                            Text(city)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    if let city = place.city {
-                        Text(city)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(dateString)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(durationString)
+                        .font(.caption.bold())
+                        .foregroundStyle(Color.accentColor)
                 }
             }
 
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(dateString)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(durationString)
-                    .font(.caption.bold())
-                    .foregroundStyle(Color.accentColor)
+            if !visit.alternativePlaces.isEmpty {
+                Button {
+                    onPickAlternative?()
+                } label: {
+                    Label("Not the right place?", systemImage: "arrow.triangle.swap")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 40)
             }
         }
         .padding(.vertical, 2)

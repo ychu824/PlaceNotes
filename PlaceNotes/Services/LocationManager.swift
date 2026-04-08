@@ -138,6 +138,14 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         logger.info("  arrival: \(clVisit.arrivalDate)")
         logger.info("  departure: \(clVisit.departureDate == .distantFuture ? "still here" : "\(clVisit.departureDate)")")
 
+        // CLVisit sets arrivalDate to .distantPast when iOS doesn't know the
+        // actual arrival time. Recording such visits produces nonsensical dates
+        // (Dec 31 year 0 in western timezones) and durations spanning millennia.
+        guard clVisit.arrivalDate != .distantPast else {
+            logger.warning("CLVisit ignored — arrivalDate is distantPast (unknown arrival)")
+            return
+        }
+
         guard let modelContext else {
             logger.error("CLVisit ignored — modelContext is nil")
             return
@@ -147,7 +155,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         let departure = clVisit.departureDate == .distantFuture ? nil : clVisit.departureDate
 
         Task { @MainActor in
-            let place = await findOrCreatePlace(
+            let (place, alternatives) = await findOrCreatePlace(
                 latitude: clVisit.coordinate.latitude,
                 longitude: clVisit.coordinate.longitude,
                 in: modelContext
@@ -159,6 +167,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             }
 
             let visit = Visit(arrivalDate: arrival, departureDate: departure, place: place)
+            visit.alternativePlaces = alternatives
             modelContext.insert(visit)
             try? modelContext.save()
 
@@ -229,7 +238,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         logger.notice("Recording dwell visit at (\(location.coordinate.latitude), \(location.coordinate.longitude)), arrived: \(arrival)")
 
         Task { @MainActor in
-            let place = await findOrCreatePlace(
+            let (place, alternatives) = await findOrCreatePlace(
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude,
                 in: context
@@ -241,6 +250,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             }
 
             let visit = Visit(arrivalDate: arrival, departureDate: nil, place: place)
+            visit.alternativePlaces = alternatives
             context.insert(visit)
             try? context.save()
 
@@ -298,7 +308,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     // MARK: - Place Resolution
 
     @MainActor
-    private func findOrCreatePlace(latitude: Double, longitude: Double, in context: ModelContext) async -> Place {
+    private func findOrCreatePlace(latitude: Double, longitude: Double, in context: ModelContext) async -> (place: Place, alternatives: [PlaceCandidate]) {
         let threshold = 0.0005 // ~50 meters
 
         let descriptor = FetchDescriptor<Place>()
@@ -308,7 +318,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             abs($0.latitude - latitude) < threshold && abs($0.longitude - longitude) < threshold
         }) {
             logger.debug("Found existing place: \(existing.name)")
-            return existing
+            return (existing, [])
         }
 
         logger.info("No existing place within \(threshold) degrees — resolving name + category")
@@ -316,7 +326,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         let place = Place(name: resolved.name, latitude: latitude, longitude: longitude, category: resolved.category, city: resolved.city, state: resolved.state)
         context.insert(place)
         logger.notice("Created new place: \(resolved.name) (category: \(resolved.category ?? "none"), city: \(resolved.city ?? "none"), state: \(resolved.state ?? "none"), source: \(resolved.source))")
-        return place
+        return (place, resolved.alternatives)
     }
 
     // MARK: - Place Name + Category Resolution
@@ -327,6 +337,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         let city: String?
         let state: String?
         let source: String  // "mapkit" or "geocoder"
+        var alternatives: [PlaceCandidate] = []
     }
 
     /// Resolves a coordinate to a place name + category + city/state.
@@ -338,8 +349,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         let geoInfo = await reverseGeocodeDetails(latitude: latitude, longitude: longitude)
 
         // Step 1: Try to find a named business/POI via MapKit
-        if let poi = await searchNearbyPOI(latitude: latitude, longitude: longitude) {
-            return ResolvedPlace(name: poi.name, category: poi.category, city: geoInfo.city, state: geoInfo.state, source: poi.source)
+        if let poi = await searchNearbyPOI(latitude: latitude, longitude: longitude, geoInfo: geoInfo) {
+            return ResolvedPlace(name: poi.name, category: poi.category, city: geoInfo.city, state: geoInfo.state, source: poi.source, alternatives: poi.alternatives)
         }
 
         // Step 2: Fall back to reverse geocoding for address + separate categorization
@@ -350,7 +361,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     /// Searches for the nearest named business/POI using coordinate-based search.
     /// Uses MKLocalPointsOfInterestRequest (no text query bias) with a 250m radius
     /// to handle large venues like Walmart, Costco, malls, etc.
-    private func searchNearbyPOI(latitude: Double, longitude: Double) async -> ResolvedPlace? {
+    private func searchNearbyPOI(latitude: Double, longitude: Double, geoInfo: GeoDetails? = nil) async -> ResolvedPlace? {
         let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         let targetLocation = CLLocation(latitude: latitude, longitude: longitude)
         let searchRadius: CLLocationDistance = 250 // meters — large enough for big-box stores
@@ -387,13 +398,39 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
                 logger.info("MapKit POI found: \(best.name) (\(Int(best.distance))m away, category: \(category ?? "none"))")
 
-                // Log runner-up for debugging
-                if candidates.count > 1 {
-                    let runnerUp = candidates[1]
-                    logger.debug("  runner-up: \(runnerUp.name) (\(Int(runnerUp.distance))m)")
+                // Capture up to 2 runner-ups as alternatives the user can pick from
+                let altGeoInfo: GeoDetails
+                if let geoInfo {
+                    altGeoInfo = geoInfo
+                } else {
+                    altGeoInfo = await reverseGeocodeDetails(latitude: latitude, longitude: longitude)
+                }
+                let alternatives: [PlaceCandidate] = Array(candidates.dropFirst().prefix(2)).map { candidate in
+                    let altCategory: String?
+                    if let poiCat = candidate.item.pointOfInterestCategory,
+                       let match = PlaceCategorizer.categoryMap.first(where: { $0.category == poiCat }) {
+                        altCategory = match.label
+                    } else {
+                        altCategory = nil
+                    }
+                    let altLat = candidate.item.placemark.coordinate.latitude
+                    let altLon = candidate.item.placemark.coordinate.longitude
+                    return PlaceCandidate(
+                        name: candidate.name,
+                        latitude: altLat,
+                        longitude: altLon,
+                        category: altCategory,
+                        city: altGeoInfo.city,
+                        state: altGeoInfo.state,
+                        distanceMeters: candidate.distance
+                    )
                 }
 
-                return ResolvedPlace(name: best.name, category: category, city: nil, state: nil, source: "mapkit")
+                if !alternatives.isEmpty {
+                    logger.info("  alternatives: \(alternatives.map { "\($0.name) (\(Int($0.distanceMeters))m)" })")
+                }
+
+                return ResolvedPlace(name: best.name, category: category, city: nil, state: nil, source: "mapkit", alternatives: alternatives)
             }
 
             logger.debug("No MapKit POI within \(Int(searchRadius))m of (\(latitude), \(longitude))")

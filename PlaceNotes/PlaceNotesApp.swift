@@ -9,24 +9,47 @@ struct PlaceNotesApp: App {
     let modelContainer: ModelContainer
 
     init() {
-        do {
-            // Use separate stores so debug mock data never leaks into release
-            #if DEBUG
-            let storeName = "debug.store"
-            #else
-            let storeName = "release.store"
-            #endif
+        // Use separate stores so debug mock data never leaks into release
+        #if DEBUG
+        let storeName = "debug.store"
+        #else
+        let storeName = "release.store"
+        #endif
 
-            let appSupport = FileManager.default.urls(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask
-            ).first!
+        let appSupport = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first!
 
-            let storeURL = appSupport.appendingPathComponent(storeName)
+        let storeURL = appSupport.appendingPathComponent(storeName)
+
+        let makeContainer = {
             let config = ModelConfiguration(url: storeURL)
-            modelContainer = try ModelContainer(for: Place.self, Visit.self, CustomCategory.self, JournalEntry.self, configurations: config)
+            return try ModelContainer(for: Place.self, Visit.self, CustomCategory.self, JournalEntry.self, configurations: config)
+        }
+
+        do {
+            modelContainer = try makeContainer()
         } catch {
-            fatalError("Failed to create ModelContainer: \(error)")
+            // Schema migration failed — delete the old store and retry.
+            // This is expected when new model fields are added during development.
+            print("[PlaceNotesApp] Store incompatible, resetting: \(error.localizedDescription)")
+            let fm = FileManager.default
+            for suffix in ["", "-wal", "-shm"] {
+                try? fm.removeItem(at: storeURL.appendingPathExtension(suffix.isEmpty ? "" : String(suffix.dropFirst())))
+                if suffix.isEmpty {
+                    try? fm.removeItem(at: storeURL)
+                } else {
+                    try? fm.removeItem(atPath: storeURL.path + suffix)
+                }
+            }
+            UserDefaults.standard.set(false, forKey: "mockDataSeeded_debug")
+
+            do {
+                modelContainer = try makeContainer()
+            } catch {
+                fatalError("Failed to create ModelContainer after reset: \(error)")
+            }
         }
     }
 
