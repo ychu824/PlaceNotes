@@ -217,18 +217,11 @@ private struct MonthSection: View {
                     NavigationLink {
                         PlaceDetailView(place: place)
                     } label: {
-                        LogbookVisitRow(visit: visit, place: place)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu {
-                        if !visit.alternativePlaces.isEmpty {
-                            Button {
-                                onPickAlternative?(visit)
-                            } label: {
-                                Label("Wrong Place?", systemImage: "arrow.triangle.swap")
-                            }
+                        LogbookVisitRow(visit: visit, place: place) {
+                            onPickAlternative?(visit)
                         }
                     }
+                    .buttonStyle(.plain)
                 }
             }
         } label: {
@@ -252,6 +245,7 @@ private struct MonthSection: View {
 private struct LogbookVisitRow: View {
     let visit: Visit
     let place: Place
+    var onPickAlternative: (() -> Void)?
 
     private var dateString: String {
         let formatter = DateFormatter()
@@ -270,45 +264,59 @@ private struct LogbookVisitRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            if place.customEmoji != nil {
-                Text(place.emoji)
-                    .font(.title3)
-                    .frame(width: 28)
-            } else {
-                Image(systemName: PlaceCategorizer.icon(for: place.category))
-                    .font(.title3)
-                    .foregroundStyle(Color.accentColor)
-                    .frame(width: 28)
-            }
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 12) {
+                if place.customEmoji != nil {
+                    Text(place.emoji)
+                        .font(.title3)
+                        .frame(width: 28)
+                } else {
+                    Image(systemName: PlaceCategorizer.icon(for: place.category))
+                        .font(.title3)
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 28)
+                }
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(place.displayName)
-                    .font(.body.weight(.medium))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(place.displayName)
+                        .font(.body.weight(.medium))
 
-                HStack(spacing: 8) {
-                    if let category = place.category, !category.isEmpty {
-                        Text(category)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        if let category = place.category, !category.isEmpty {
+                            Text(category)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        if let city = place.city {
+                            Text(city)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    if let city = place.city {
-                        Text(city)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                }
+
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(dateString)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(durationString)
+                        .font(.caption.bold())
+                        .foregroundStyle(Color.accentColor)
                 }
             }
 
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(dateString)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text(durationString)
-                    .font(.caption.bold())
-                    .foregroundStyle(Color.accentColor)
+            if !visit.alternativePlaces.isEmpty {
+                Button {
+                    onPickAlternative?()
+                } label: {
+                    Label("Not the right place?", systemImage: "arrow.triangle.swap")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 40)
             }
         }
         .padding(.vertical, 2)
