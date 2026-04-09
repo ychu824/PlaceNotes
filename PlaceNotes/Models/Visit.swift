@@ -23,6 +23,17 @@ final class Visit {
     /// JSON-encoded array of PlaceCandidate — the runner-up places from POI search.
     var alternativePlacesData: Data?
 
+    /// How confidently this visit was resolved to a place.
+    var confidenceRaw: String?
+
+    /// Median horizontal accuracy of samples collected during the stay (meters).
+    var medianAccuracyMeters: Double?
+
+    var confidence: PlaceConfidence {
+        get { PlaceConfidence(rawValue: confidenceRaw ?? "") ?? .medium }
+        set { confidenceRaw = newValue.rawValue }
+    }
+
     var alternativePlaces: [PlaceCandidate] {
         get {
             guard let data = alternativePlacesData else { return [] }
@@ -65,4 +76,14 @@ enum TimeOfDay: String, CaseIterable, Codable {
     case afternoon = "Afternoon"
     case evening = "Evening"
     case night = "Night"
+}
+
+/// Confidence level for how reliably a visit was resolved to a place.
+/// - high: Good accuracy, long dwell, one clear POI nearby.
+/// - medium: Decent address, multiple nearby businesses.
+/// - low: Noisy location or no reliable POI — shows address fallback.
+enum PlaceConfidence: String, Codable, CaseIterable {
+    case high = "High"
+    case medium = "Medium"
+    case low = "Low"
 }

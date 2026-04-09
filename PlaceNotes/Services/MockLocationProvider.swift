@@ -7,7 +7,7 @@ final class MockLocationProvider {
 
     private static let seededKey = "mockDataSeeded_debug"
     /// Bump this version to force a re-seed (e.g. after adding new mock fields).
-    private static let seedVersion = 2
+    private static let seedVersion = 3
     private static let seedVersionKey = "mockDataSeedVersion"
 
     /// Whether mock data has been seeded into the current debug database.
@@ -86,6 +86,11 @@ final class MockLocationProvider {
                 let departure = arrival.addingTimeInterval(Double(durationMinutes) * 60)
 
                 let visit = Visit(arrivalDate: arrival, departureDate: departure, place: place)
+
+                // Assign a random confidence level for testing
+                let confidences: [PlaceConfidence] = [.high, .high, .high, .medium, .medium, .low]
+                visit.confidence = confidences.randomElement()!
+                visit.medianAccuracyMeters = Double.random(in: 5...60)
 
                 // Give ~half the visits some alternative place candidates so
                 // the "Wrong Place?" feature can be tested in debug builds.

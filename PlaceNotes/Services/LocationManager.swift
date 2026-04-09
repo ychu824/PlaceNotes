@@ -6,6 +6,30 @@ import os
 
 private let logger = Logger(subsystem: "com.placenotes.app", category: "LocationManager")
 
+// MARK: - Location Sample
+
+/// A single GPS sample collected during a potential stay.
+struct LocationSample {
+    let coordinate: CLLocationCoordinate2D
+    let timestamp: Date
+    let horizontalAccuracy: CLLocationAccuracy
+    let speed: CLLocationSpeed
+}
+
+// MARK: - Stay Cluster
+
+/// A cluster of location samples representing a detected stay.
+struct StayCluster {
+    let samples: [LocationSample]
+    let center: CLLocationCoordinate2D
+    let startDate: Date
+    let medianAccuracy: Double
+    let spreadMeters: Double
+
+    /// Whether the cluster is too spread out to reliably resolve to a single place.
+    var isAmbiguous: Bool { spreadMeters > 100 }
+}
+
 final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let clManager = CLLocationManager()
     private var modelContext: ModelContext?
@@ -18,7 +42,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
     // MARK: - Dwell detection
 
-    private var dwellLocation: CLLocation?
+    /// Raw samples collected at the current candidate stay location.
+    private var dwellSamples: [LocationSample] = []
     private var dwellStartDate: Date?
     private var lastRecordedDwellLocation: CLLocation?
     private var dwellTimer: Timer?
@@ -27,11 +52,22 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     /// Distance (meters) the user must move before we consider them "left".
     private let dwellRadiusMeters: Double = 80
 
+    /// Maximum horizontal accuracy to accept a sample (meters).
+    /// Samples noisier than this are dropped.
+    private let maxAcceptableAccuracy: CLLocationAccuracy = 65
+
+    /// Maximum speed (m/s) to accept a sample. ~3.6 km/h — faster means walking/driving, not staying.
+    private let maxStationarySpeed: CLLocationSpeed = 2.0
+
+    /// Minimum dwell time to create a place (seconds). Hard floor regardless of settings.
+    private let minimumDwellSeconds: TimeInterval = 300 // 5 minutes
+
+    /// Maximum accuracy to attempt venue labeling. Beyond this, fall back to address.
+    private let maxAccuracyForVenueLabel: CLLocationAccuracy = 50
+
     /// Seconds the user must remain stationary to trigger a dwell visit.
-    /// Reads from AppSettings.minStayMinutes so the user's configured threshold
-    /// controls both report qualification AND dwell detection.
     private var dwellThresholdSeconds: TimeInterval {
-        TimeInterval(settings.minStayMinutes * 60)
+        max(minimumDwellSeconds, TimeInterval(settings.minStayMinutes * 60))
     }
 
     init(settings: AppSettings = .shared) {
@@ -41,7 +77,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         clManager.allowsBackgroundLocationUpdates = true
         clManager.pausesLocationUpdatesAutomatically = false
         clManager.desiredAccuracy = kCLLocationAccuracyBest
-        clManager.distanceFilter = 10 // meters — frequent enough for dwell detection without flooding the main thread
+        clManager.distanceFilter = 10
         authorizationStatus = clManager.authorizationStatus
         logger.info("LocationManager initialized, auth status: \(self.authorizationStatus.rawValue), minStay: \(settings.minStayMinutes)min")
     }
@@ -77,9 +113,6 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     // MARK: - Dwell Timer
-    // Since the simulator (and stationary real devices) may not fire
-    // didUpdateLocations frequently enough, we use a periodic timer
-    // to check dwell status independently.
 
     private func startDwellTimer() {
         dwellTimer?.invalidate()
@@ -90,23 +123,22 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     private func checkDwellStatus() {
-        guard let dwellLoc = dwellLocation,
+        guard !dwellSamples.isEmpty,
               let start = dwellStartDate,
               let modelContext else {
-            logger.debug("Dwell timer tick — no active dwell location")
+            logger.debug("Dwell timer tick — no active dwell samples")
             return
         }
 
         let elapsed = Date().timeIntervalSince(start)
-        logger.info("Dwell timer tick — dwelling for \(Int(elapsed))s at (\(dwellLoc.coordinate.latitude), \(dwellLoc.coordinate.longitude))")
-
         let threshold = dwellThresholdSeconds
         if elapsed >= threshold {
-            logger.notice("Dwell threshold reached (\(Int(elapsed))s >= \(Int(threshold))s from minStay=\(self.settings.minStayMinutes)min) — recording visit")
-            recordDwellVisit(at: dwellLoc, arrival: start, context: modelContext)
+            logger.notice("Dwell threshold reached via timer (\(Int(elapsed))s >= \(Int(threshold))s) — recording visit")
+            let cluster = buildCluster(from: dwellSamples, startDate: start)
+            recordDwellVisit(cluster: cluster, context: modelContext)
         } else {
             let remaining = Int(threshold - elapsed)
-            logger.info("Dwell threshold not yet met — \(remaining)s remaining (threshold=\(Int(threshold))s from minStay=\(self.settings.minStayMinutes)min)")
+            logger.info("Dwell timer tick — \(remaining)s remaining, \(self.dwellSamples.count) samples collected")
         }
     }
 
@@ -135,12 +167,9 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
     func locationManager(_ manager: CLLocationManager, didVisit clVisit: CLVisit) {
         logger.notice("CLVisit received: (\(clVisit.coordinate.latitude), \(clVisit.coordinate.longitude))")
-        logger.info("  arrival: \(clVisit.arrivalDate)")
-        logger.info("  departure: \(clVisit.departureDate == .distantFuture ? "still here" : "\(clVisit.departureDate)")")
+        logger.info("  arrival: \(clVisit.arrivalDate), departure: \(clVisit.departureDate == .distantFuture ? "still here" : "\(clVisit.departureDate)")")
+        logger.info("  horizontalAccuracy: \(clVisit.horizontalAccuracy)m")
 
-        // CLVisit sets arrivalDate to .distantPast when iOS doesn't know the
-        // actual arrival time. Recording such visits produces nonsensical dates
-        // (Dec 31 year 0 in western timezones) and durations spanning millennia.
         guard clVisit.arrivalDate != .distantPast else {
             logger.warning("CLVisit ignored — arrivalDate is distantPast (unknown arrival)")
             return
@@ -154,11 +183,27 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         let arrival = clVisit.arrivalDate
         let departure = clVisit.departureDate == .distantFuture ? nil : clVisit.departureDate
 
+        // Check minimum dwell time for CLVisit
+        if let dep = departure {
+            let dwell = dep.timeIntervalSince(arrival)
+            if dwell < minimumDwellSeconds {
+                logger.info("CLVisit ignored — dwell too short (\(Int(dwell))s < \(Int(self.minimumDwellSeconds))s)")
+                return
+            }
+        }
+
+        // Determine confidence from CLVisit's accuracy
+        let accuracy = clVisit.horizontalAccuracy
+        let dwellSeconds = departure.map { $0.timeIntervalSince(arrival) }
+        let confidence = computeConfidence(accuracy: accuracy, dwellSeconds: dwellSeconds, clusterSpread: nil)
+        let useAddressFallback = accuracy > maxAccuracyForVenueLabel || confidence == .low
+
         Task { @MainActor in
             let (place, alternatives) = await findOrCreatePlace(
                 latitude: clVisit.coordinate.latitude,
                 longitude: clVisit.coordinate.longitude,
-                in: modelContext
+                in: modelContext,
+                addressOnly: useAddressFallback
             )
 
             if isDuplicate(place: place, arrival: arrival) {
@@ -168,12 +213,14 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
             let visit = Visit(arrivalDate: arrival, departureDate: departure, place: place)
             visit.alternativePlaces = alternatives
+            visit.confidence = confidence
+            visit.medianAccuracyMeters = accuracy
             modelContext.insert(visit)
             try? modelContext.save()
 
             currentVisit = visit
             onVisitRecorded?(visit)
-            logger.notice("Recorded CLVisit at \(place.name)")
+            logger.notice("Recorded CLVisit at \(place.name) (confidence: \(confidence.rawValue), accuracy: \(Int(accuracy))m)")
         }
     }
 
@@ -183,7 +230,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             return
         }
 
-        logger.debug("Location update: (\(location.coordinate.latitude), \(location.coordinate.longitude)) accuracy: \(location.horizontalAccuracy)m")
+        logger.debug("Location update: (\(location.coordinate.latitude), \(location.coordinate.longitude)) accuracy: \(location.horizontalAccuracy)m speed: \(location.speed)m/s")
 
         guard let modelContext else {
             logger.error("Location update ignored — modelContext is nil")
@@ -192,29 +239,61 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
         userLocation = location.coordinate
 
-        if let dwellLoc = dwellLocation {
-            let distance = location.distance(from: dwellLoc)
-            let elapsed = dwellStartDate.map { Int(Date().timeIntervalSince($0)) } ?? 0
+        // Step 1: Filter noisy / stale samples
+        let isAccurate = location.horizontalAccuracy >= 0 && location.horizontalAccuracy <= maxAcceptableAccuracy
+        let isStationary = location.speed < 0 || location.speed <= maxStationarySpeed // speed < 0 means unknown
+        let isRecent = abs(location.timestamp.timeIntervalSinceNow) < 30 // not stale
+
+        if !isAccurate {
+            logger.debug("Sample dropped — accuracy \(location.horizontalAccuracy)m > \(self.maxAcceptableAccuracy)m threshold")
+        }
+        if !isStationary {
+            logger.debug("Sample dropped — speed \(location.speed)m/s > \(self.maxStationarySpeed)m/s threshold")
+        }
+
+        let sample = LocationSample(
+            coordinate: location.coordinate,
+            timestamp: location.timestamp,
+            horizontalAccuracy: location.horizontalAccuracy,
+            speed: location.speed
+        )
+
+        if !dwellSamples.isEmpty {
+            // Calculate distance from the centroid of existing samples for stability
+            let currentCenter = weightedCenter(of: dwellSamples)
+            let centerLocation = CLLocation(latitude: currentCenter.latitude, longitude: currentCenter.longitude)
+            let distance = location.distance(from: centerLocation)
 
             if distance < dwellRadiusMeters {
-                logger.debug("Still within dwell radius (\(Int(distance))m < \(Int(self.dwellRadiusMeters))m), elapsed: \(elapsed)s")
+                // Still within dwell radius — collect sample if quality is good
+                if isAccurate && isStationary && isRecent {
+                    dwellSamples.append(sample)
+                    logger.debug("Sample collected (\(self.dwellSamples.count) total), \(Int(distance))m from center")
+                }
 
                 if let start = dwellStartDate,
                    Date().timeIntervalSince(start) >= dwellThresholdSeconds {
                     logger.notice("Dwell threshold met via location update — recording visit")
-                    recordDwellVisit(at: dwellLoc, arrival: start, context: modelContext)
+                    let cluster = buildCluster(from: dwellSamples, startDate: start)
+                    recordDwellVisit(cluster: cluster, context: modelContext)
                 }
             } else {
                 logger.info("Moved outside dwell radius (\(Int(distance))m >= \(Int(self.dwellRadiusMeters))m) — resetting dwell")
                 finalizeDwell()
-                dwellLocation = location
-                dwellStartDate = Date()
-                logger.info("New dwell started at (\(location.coordinate.latitude), \(location.coordinate.longitude))")
+                // Start new dwell only if this sample is good
+                if isAccurate && isStationary && isRecent {
+                    dwellSamples = [sample]
+                    dwellStartDate = Date()
+                    logger.info("New dwell started at (\(location.coordinate.latitude), \(location.coordinate.longitude))")
+                }
             }
         } else {
-            dwellLocation = location
-            dwellStartDate = Date()
-            logger.info("First location — dwell started at (\(location.coordinate.latitude), \(location.coordinate.longitude))")
+            // No dwell in progress — start one if sample is good
+            if isAccurate && isStationary && isRecent {
+                dwellSamples = [sample]
+                dwellStartDate = Date()
+                logger.info("First location — dwell started at (\(location.coordinate.latitude), \(location.coordinate.longitude))")
+            }
         }
     }
 
@@ -225,49 +304,162 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         }
     }
 
+    // MARK: - Cluster Building
+
+    /// Compute a weighted center from samples, giving more weight to more accurate ones.
+    private func weightedCenter(of samples: [LocationSample]) -> CLLocationCoordinate2D {
+        guard !samples.isEmpty else {
+            return CLLocationCoordinate2D(latitude: 0, longitude: 0)
+        }
+
+        var totalWeight: Double = 0
+        var weightedLat: Double = 0
+        var weightedLon: Double = 0
+
+        for s in samples {
+            let weight = 1.0 / max(s.horizontalAccuracy, 1.0)
+            weightedLat += s.coordinate.latitude * weight
+            weightedLon += s.coordinate.longitude * weight
+            totalWeight += weight
+        }
+
+        return CLLocationCoordinate2D(
+            latitude: weightedLat / totalWeight,
+            longitude: weightedLon / totalWeight
+        )
+    }
+
+    /// Build a StayCluster from collected samples.
+    private func buildCluster(from samples: [LocationSample], startDate: Date) -> StayCluster {
+        let center = weightedCenter(of: samples)
+        let centerLoc = CLLocation(latitude: center.latitude, longitude: center.longitude)
+
+        // Compute spread: max distance from center
+        let spread = samples.map { s in
+            CLLocation(latitude: s.coordinate.latitude, longitude: s.coordinate.longitude)
+                .distance(from: centerLoc)
+        }.max() ?? 0
+
+        // Compute median accuracy
+        let sortedAccuracies = samples.map(\.horizontalAccuracy).sorted()
+        let medianAccuracy: Double
+        if sortedAccuracies.isEmpty {
+            medianAccuracy = 100
+        } else if sortedAccuracies.count % 2 == 0 {
+            medianAccuracy = (sortedAccuracies[sortedAccuracies.count / 2 - 1] + sortedAccuracies[sortedAccuracies.count / 2]) / 2
+        } else {
+            medianAccuracy = sortedAccuracies[sortedAccuracies.count / 2]
+        }
+
+        logger.info("Cluster built: center=(\(center.latitude), \(center.longitude)), \(samples.count) samples, spread=\(Int(spread))m, medianAccuracy=\(Int(medianAccuracy))m")
+
+        return StayCluster(
+            samples: samples,
+            center: center,
+            startDate: startDate,
+            medianAccuracy: medianAccuracy,
+            spreadMeters: spread
+        )
+    }
+
+    // MARK: - Confidence
+
+    /// Determine confidence based on accuracy, dwell time, and cluster spread.
+    private func computeConfidence(accuracy: Double, dwellSeconds: TimeInterval?, clusterSpread: Double?) -> PlaceConfidence {
+        var score = 0
+
+        // Accuracy scoring
+        if accuracy <= 15 { score += 3 }
+        else if accuracy <= 30 { score += 2 }
+        else if accuracy <= maxAccuracyForVenueLabel { score += 1 }
+        // accuracy > 50 adds nothing
+
+        // Dwell time scoring
+        if let dwell = dwellSeconds {
+            if dwell >= 1800 { score += 3 }       // 30+ min
+            else if dwell >= 600 { score += 2 }    // 10+ min
+            else if dwell >= 300 { score += 1 }    // 5+ min
+        }
+
+        // Cluster spread scoring (lower is better)
+        if let spread = clusterSpread {
+            if spread <= 30 { score += 2 }
+            else if spread <= 60 { score += 1 }
+            // spread > 60 adds nothing
+        }
+
+        if score >= 6 { return .high }
+        if score >= 3 { return .medium }
+        return .low
+    }
+
     // MARK: - Dwell Visit Recording
 
-    private func recordDwellVisit(at location: CLLocation, arrival: Date, context: ModelContext) {
+    private func recordDwellVisit(cluster: StayCluster, context: ModelContext) {
+        let clusterCenter = CLLocation(latitude: cluster.center.latitude, longitude: cluster.center.longitude)
+
         if let lastDwell = lastRecordedDwellLocation,
-           location.distance(from: lastDwell) < dwellRadiusMeters {
+           clusterCenter.distance(from: lastDwell) < dwellRadiusMeters {
             logger.debug("Dwell already recorded at this location — skipping")
             return
         }
 
-        lastRecordedDwellLocation = location
-        logger.notice("Recording dwell visit at (\(location.coordinate.latitude), \(location.coordinate.longitude)), arrived: \(arrival)")
+        // Don't create place if dwell is too short
+        let elapsed = Date().timeIntervalSince(cluster.startDate)
+        if elapsed < minimumDwellSeconds {
+            logger.info("Dwell too short (\(Int(elapsed))s < \(Int(self.minimumDwellSeconds))s) — not recording")
+            return
+        }
+
+        lastRecordedDwellLocation = clusterCenter
+
+        let confidence = computeConfidence(
+            accuracy: cluster.medianAccuracy,
+            dwellSeconds: elapsed,
+            clusterSpread: cluster.spreadMeters
+        )
+        let useAddressFallback = cluster.medianAccuracy > maxAccuracyForVenueLabel || cluster.isAmbiguous || confidence == .low
+
+        logger.notice("Recording dwell visit: center=(\(cluster.center.latitude), \(cluster.center.longitude)), \(cluster.samples.count) samples, confidence=\(confidence.rawValue), addressOnly=\(useAddressFallback)")
 
         Task { @MainActor in
             let (place, alternatives) = await findOrCreatePlace(
-                latitude: location.coordinate.latitude,
-                longitude: location.coordinate.longitude,
-                in: context
+                latitude: cluster.center.latitude,
+                longitude: cluster.center.longitude,
+                in: context,
+                addressOnly: useAddressFallback
             )
 
-            if isDuplicate(place: place, arrival: arrival) {
+            if isDuplicate(place: place, arrival: cluster.startDate) {
                 logger.info("Skipping duplicate dwell visit for \(place.name)")
                 return
             }
 
-            let visit = Visit(arrivalDate: arrival, departureDate: nil, place: place)
+            let visit = Visit(arrivalDate: cluster.startDate, departureDate: nil, place: place)
             visit.alternativePlaces = alternatives
+            visit.confidence = confidence
+            visit.medianAccuracyMeters = cluster.medianAccuracy
             context.insert(visit)
             try? context.save()
 
             currentVisit = visit
             onVisitRecorded?(visit)
-            let stayMinutes = Int(Date().timeIntervalSince(arrival) / 60)
-            logger.notice("VISIT RECORDED: \(place.name) (category: \(place.category ?? "none"), stayed \(stayMinutes) min)")
+            let stayMinutes = Int(elapsed / 60)
+            logger.notice("VISIT RECORDED: \(place.name) (confidence: \(confidence.rawValue), accuracy: \(Int(cluster.medianAccuracy))m, spread: \(Int(cluster.spreadMeters))m, stayed \(stayMinutes) min)")
         }
     }
 
     private func finalizeDwell() {
-        guard let dwellLoc = dwellLocation,
+        guard !dwellSamples.isEmpty,
               let modelContext else {
-            dwellLocation = nil
+            dwellSamples = []
             dwellStartDate = nil
             return
         }
+
+        // Use cluster center for more accurate departure matching
+        let center = weightedCenter(of: dwellSamples)
+        let centerLoc = CLLocation(latitude: center.latitude, longitude: center.longitude)
 
         Task { @MainActor in
             let descriptor = FetchDescriptor<Visit>(
@@ -277,7 +469,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             if let activeVisit = try? modelContext.fetch(descriptor).first,
                let place = activeVisit.place {
                 let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
-                if dwellLoc.distance(from: placeLocation) < dwellRadiusMeters {
+                if centerLoc.distance(from: placeLocation) < dwellRadiusMeters {
                     activeVisit.departureDate = Date()
                     try? modelContext.save()
                     logger.notice("Finalized departure for \(place.name)")
@@ -285,12 +477,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             }
         }
 
-        dwellLocation = nil
+        dwellSamples = []
         dwellStartDate = nil
         lastRecordedDwellLocation = nil
     }
 
-    
     // MARK: - Duplicate Detection
 
     @MainActor
@@ -308,7 +499,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     // MARK: - Place Resolution
 
     @MainActor
-    private func findOrCreatePlace(latitude: Double, longitude: Double, in context: ModelContext) async -> (place: Place, alternatives: [PlaceCandidate]) {
+    private func findOrCreatePlace(latitude: Double, longitude: Double, in context: ModelContext, addressOnly: Bool = false) async -> (place: Place, alternatives: [PlaceCandidate]) {
         let threshold = 0.0005 // ~50 meters
 
         let descriptor = FetchDescriptor<Place>()
@@ -321,11 +512,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             return (existing, [])
         }
 
-        logger.info("No existing place within \(threshold) degrees — resolving name + category")
-        let resolved = await resolvePlace(latitude: latitude, longitude: longitude)
+        logger.info("No existing place within \(threshold) degrees — resolving (addressOnly: \(addressOnly))")
+        let resolved = await resolvePlace(latitude: latitude, longitude: longitude, addressOnly: addressOnly)
         let place = Place(name: resolved.name, latitude: latitude, longitude: longitude, category: resolved.category, city: resolved.city, state: resolved.state)
         context.insert(place)
-        logger.notice("Created new place: \(resolved.name) (category: \(resolved.category ?? "none"), city: \(resolved.city ?? "none"), state: \(resolved.state ?? "none"), source: \(resolved.source))")
+        logger.notice("Created new place: \(resolved.name) (category: \(resolved.category ?? "none"), city: \(resolved.city ?? "none"), source: \(resolved.source))")
         return (place, resolved.alternatives)
     }
 
@@ -336,38 +527,38 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         let category: String?
         let city: String?
         let state: String?
-        let source: String  // "mapkit" or "geocoder"
+        let source: String  // "mapkit", "geocoder", or "address-fallback"
         var alternatives: [PlaceCandidate] = []
     }
 
     /// Resolves a coordinate to a place name + category + city/state.
-    /// 1. First tries MKLocalSearch to find a nearby business/POI (e.g. "Walmart", "Costco").
-    /// 2. Falls back to CLGeocoder for an address if no POI is found.
-    /// Always fetches city/state via reverse geocoding.
-    private func resolvePlace(latitude: Double, longitude: Double) async -> ResolvedPlace {
-        // Always fetch city/state from reverse geocoding
+    /// When `addressOnly` is true (low confidence), skips POI search and returns address.
+    private func resolvePlace(latitude: Double, longitude: Double, addressOnly: Bool = false) async -> ResolvedPlace {
         let geoInfo = await reverseGeocodeDetails(latitude: latitude, longitude: longitude)
 
-        // Step 1: Try to find a named business/POI via MapKit
+        if addressOnly {
+            logger.info("Address-only fallback: \(geoInfo.name)")
+            return ResolvedPlace(name: geoInfo.name, category: nil, city: geoInfo.city, state: geoInfo.state, source: "address-fallback")
+        }
+
+        // Try to find a named business/POI via MapKit
         if let poi = await searchNearbyPOI(latitude: latitude, longitude: longitude, geoInfo: geoInfo) {
             return ResolvedPlace(name: poi.name, category: poi.category, city: geoInfo.city, state: geoInfo.state, source: poi.source, alternatives: poi.alternatives)
         }
 
-        // Step 2: Fall back to reverse geocoding for address + separate categorization
+        // Fall back to reverse geocoding + categorization
         let categoryResult = await PlaceCategorizer.categorize(latitude: latitude, longitude: longitude)
         return ResolvedPlace(name: geoInfo.name, category: categoryResult?.label, city: geoInfo.city, state: geoInfo.state, source: "geocoder")
     }
 
     /// Searches for the nearest named business/POI using coordinate-based search.
-    /// Uses MKLocalPointsOfInterestRequest (no text query bias) with a 250m radius
-    /// to handle large venues like Walmart, Costco, malls, etc.
+    /// Search radius scales with accuracy — tighter accuracy means smaller, more precise search.
     private func searchNearbyPOI(latitude: Double, longitude: Double, geoInfo: GeoDetails? = nil) async -> ResolvedPlace? {
         let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
         let targetLocation = CLLocation(latitude: latitude, longitude: longitude)
-        let searchRadius: CLLocationDistance = 250 // meters — large enough for big-box stores
+        // Scale search radius: use 150m for precise locations, up to 250m max
+        let searchRadius: CLLocationDistance = 150
 
-        // Use coordinate-based POI request — no text query, so no bias toward
-        // specific business types. Returns all POIs within the radius.
         let request = MKLocalPointsOfInterestRequest(center: coordinate, radius: searchRadius)
         request.pointOfInterestFilter = .includingAll
 
@@ -376,7 +567,6 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         do {
             let response = try await search.start()
 
-            // Rank candidates by distance — closest named POI wins
             let candidates = response.mapItems
                 .compactMap { item -> (item: MKMapItem, distance: CLLocationDistance, name: String)? in
                     guard let name = item.name, !name.isEmpty,
@@ -398,7 +588,6 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
 
                 logger.info("MapKit POI found: \(best.name) (\(Int(best.distance))m away, category: \(category ?? "none"))")
 
-                // Capture up to 2 runner-ups as alternatives the user can pick from
                 let altGeoInfo: GeoDetails
                 if let geoInfo {
                     altGeoInfo = geoInfo

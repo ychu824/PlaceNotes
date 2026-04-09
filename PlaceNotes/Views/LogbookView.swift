@@ -321,6 +321,11 @@ private struct LogbookVisitRow: View {
                     Text(durationString)
                         .font(.caption.bold())
                         .foregroundStyle(Color.accentColor)
+                    if visit.confidence == .low {
+                        Label("Low confidence", systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
                 }
             }
 
