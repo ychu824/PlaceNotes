@@ -86,6 +86,35 @@ final class VisitTests: XCTestCase {
         XCTAssertFalse(visit.isActive)
     }
 
+    // MARK: - Confidence
+
+    func testConfidenceDefaultsToMedium() {
+        let visit = Visit(arrivalDate: Date())
+        XCTAssertEqual(visit.confidence, .medium)
+    }
+
+    func testConfidenceRoundTrips() {
+        let visit = Visit(arrivalDate: Date())
+        visit.confidence = .high
+        XCTAssertEqual(visit.confidence, .high)
+        XCTAssertEqual(visit.confidenceRaw, "High")
+
+        visit.confidence = .low
+        XCTAssertEqual(visit.confidence, .low)
+        XCTAssertEqual(visit.confidenceRaw, "Low")
+    }
+
+    func testConfidenceFallsBackForInvalidRaw() {
+        let visit = Visit(arrivalDate: Date())
+        visit.confidenceRaw = "garbage"
+        XCTAssertEqual(visit.confidence, .medium)
+    }
+
+    func testMedianAccuracyMetersDefaultsToNil() {
+        let visit = Visit(arrivalDate: Date())
+        XCTAssertNil(visit.medianAccuracyMeters)
+    }
+
     // MARK: - Helpers
 
     private func makeVisit(hour: Int) -> Visit {

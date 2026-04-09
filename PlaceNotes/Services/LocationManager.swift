@@ -63,7 +63,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private let minimumDwellSeconds: TimeInterval = 300 // 5 minutes
 
     /// Maximum accuracy to attempt venue labeling. Beyond this, fall back to address.
-    private let maxAccuracyForVenueLabel: CLLocationAccuracy = 50
+    private let maxAccuracyForVenueLabel: CLLocationAccuracy = StayDetector.maxAccuracyForVenueLabel
 
     /// Seconds the user must remain stationary to trigger a dwell visit.
     private var dwellThresholdSeconds: TimeInterval {
@@ -304,93 +304,20 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         }
     }
 
-    // MARK: - Cluster Building
+    // MARK: - Cluster Building (delegates to StayDetector)
 
-    /// Compute a weighted center from samples, giving more weight to more accurate ones.
     private func weightedCenter(of samples: [LocationSample]) -> CLLocationCoordinate2D {
-        guard !samples.isEmpty else {
-            return CLLocationCoordinate2D(latitude: 0, longitude: 0)
-        }
-
-        var totalWeight: Double = 0
-        var weightedLat: Double = 0
-        var weightedLon: Double = 0
-
-        for s in samples {
-            let weight = 1.0 / max(s.horizontalAccuracy, 1.0)
-            weightedLat += s.coordinate.latitude * weight
-            weightedLon += s.coordinate.longitude * weight
-            totalWeight += weight
-        }
-
-        return CLLocationCoordinate2D(
-            latitude: weightedLat / totalWeight,
-            longitude: weightedLon / totalWeight
-        )
+        StayDetector.weightedCenter(of: samples)
     }
 
-    /// Build a StayCluster from collected samples.
     private func buildCluster(from samples: [LocationSample], startDate: Date) -> StayCluster {
-        let center = weightedCenter(of: samples)
-        let centerLoc = CLLocation(latitude: center.latitude, longitude: center.longitude)
-
-        // Compute spread: max distance from center
-        let spread = samples.map { s in
-            CLLocation(latitude: s.coordinate.latitude, longitude: s.coordinate.longitude)
-                .distance(from: centerLoc)
-        }.max() ?? 0
-
-        // Compute median accuracy
-        let sortedAccuracies = samples.map(\.horizontalAccuracy).sorted()
-        let medianAccuracy: Double
-        if sortedAccuracies.isEmpty {
-            medianAccuracy = 100
-        } else if sortedAccuracies.count % 2 == 0 {
-            medianAccuracy = (sortedAccuracies[sortedAccuracies.count / 2 - 1] + sortedAccuracies[sortedAccuracies.count / 2]) / 2
-        } else {
-            medianAccuracy = sortedAccuracies[sortedAccuracies.count / 2]
-        }
-
-        logger.info("Cluster built: center=(\(center.latitude), \(center.longitude)), \(samples.count) samples, spread=\(Int(spread))m, medianAccuracy=\(Int(medianAccuracy))m")
-
-        return StayCluster(
-            samples: samples,
-            center: center,
-            startDate: startDate,
-            medianAccuracy: medianAccuracy,
-            spreadMeters: spread
-        )
+        let cluster = StayDetector.buildCluster(from: samples, startDate: startDate)
+        logger.info("Cluster built: center=(\(cluster.center.latitude), \(cluster.center.longitude)), \(samples.count) samples, spread=\(Int(cluster.spreadMeters))m, medianAccuracy=\(Int(cluster.medianAccuracy))m")
+        return cluster
     }
 
-    // MARK: - Confidence
-
-    /// Determine confidence based on accuracy, dwell time, and cluster spread.
     private func computeConfidence(accuracy: Double, dwellSeconds: TimeInterval?, clusterSpread: Double?) -> PlaceConfidence {
-        var score = 0
-
-        // Accuracy scoring
-        if accuracy <= 15 { score += 3 }
-        else if accuracy <= 30 { score += 2 }
-        else if accuracy <= maxAccuracyForVenueLabel { score += 1 }
-        // accuracy > 50 adds nothing
-
-        // Dwell time scoring
-        if let dwell = dwellSeconds {
-            if dwell >= 1800 { score += 3 }       // 30+ min
-            else if dwell >= 600 { score += 2 }    // 10+ min
-            else if dwell >= 300 { score += 1 }    // 5+ min
-        }
-
-        // Cluster spread scoring (lower is better)
-        if let spread = clusterSpread {
-            if spread <= 30 { score += 2 }
-            else if spread <= 60 { score += 1 }
-            // spread > 60 adds nothing
-        }
-
-        if score >= 6 { return .high }
-        if score >= 3 { return .medium }
-        return .low
+        StayDetector.computeConfidence(accuracy: accuracy, dwellSeconds: dwellSeconds, clusterSpread: clusterSpread)
     }
 
     // MARK: - Dwell Visit Recording
