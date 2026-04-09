@@ -321,11 +321,9 @@ private struct LogbookVisitRow: View {
                     Text(durationString)
                         .font(.caption.bold())
                         .foregroundStyle(Color.accentColor)
-                    if visit.confidence == .low {
-                        Label("Low confidence", systemImage: "exclamationmark.triangle.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                    }
+                    #if DEBUG
+                    ConfidenceBadge(confidence: visit.confidence, accuracy: visit.medianAccuracyMeters)
+                    #endif
                 }
             }
 
@@ -344,3 +342,40 @@ private struct LogbookVisitRow: View {
         .padding(.vertical, 2)
     }
 }
+
+// MARK: - Debug Confidence Badge
+
+#if DEBUG
+private struct ConfidenceBadge: View {
+    let confidence: PlaceConfidence
+    let accuracy: Double?
+
+    private var color: Color {
+        switch confidence {
+        case .high: return .green
+        case .medium: return .orange
+        case .low: return .red
+        }
+    }
+
+    private var icon: String {
+        switch confidence {
+        case .high: return "checkmark.seal.fill"
+        case .medium: return "questionmark.diamond.fill"
+        case .low: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon)
+            Text(confidence.rawValue)
+            if let acc = accuracy {
+                Text("(\(Int(acc))m)")
+            }
+        }
+        .font(.caption2)
+        .foregroundStyle(color)
+    }
+}
+#endif
