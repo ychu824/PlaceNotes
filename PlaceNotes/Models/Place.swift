@@ -37,7 +37,7 @@ final class Place {
     }
 
     func qualifiedStays(minMinutes: Int) -> [Visit] {
-        visits.filter { $0.durationMinutes >= minMinutes }
+        visits.filter { $0.departureDate != nil && $0.durationMinutes >= minMinutes }
     }
 
     func qualifiedStayCount(minMinutes: Int) -> Int {
