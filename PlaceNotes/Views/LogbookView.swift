@@ -6,6 +6,7 @@ struct LogbookView: View {
     @Query private var places: [Place]
     @EnvironmentObject var settings: AppSettings
     @State private var visitForAlternatives: Visit?
+    @State private var refreshID = UUID()
 
     private var groupedVisits: [(year: Int, months: [(month: Int, visits: [Visit])])] {
         let minStay = settings.minStayMinutes
@@ -67,6 +68,10 @@ struct LogbookView: View {
                         }
                     }
                     .listStyle(.insetGrouped)
+                    .id(refreshID)
+                    .refreshable {
+                        refreshID = UUID()
+                    }
                 }
             }
             .navigationTitle("Logbook")
