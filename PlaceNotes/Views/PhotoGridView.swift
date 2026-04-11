@@ -16,7 +16,7 @@ struct PhotoGridView: View {
             LazyVGrid(columns: columns, spacing: 4) {
                 ForEach(photoFilenames, id: \.self) { filename in
                     PhotoThumbnailView(filename: filename)
-                        .aspectRatio(1, contentMode: .fill)
+                        .aspectRatio(1, contentMode: .fit)
                         .clipped()
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                         .overlay(alignment: .topTrailing) {
