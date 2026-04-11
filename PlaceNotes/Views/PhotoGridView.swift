@@ -43,23 +43,25 @@ struct PhotoThumbnailView: View {
     @State private var image: UIImage?
 
     var body: some View {
-        Group {
-            if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else {
-                Rectangle()
-                    .fill(Color(.systemGray5))
-                    .overlay {
-                        Image(systemName: "photo")
-                            .foregroundStyle(.secondary)
-                    }
+        Color.clear
+            .overlay {
+                if let image {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Rectangle()
+                        .fill(Color(.systemGray5))
+                        .overlay {
+                            Image(systemName: "photo")
+                                .foregroundStyle(.secondary)
+                        }
+                }
             }
-        }
-        .onAppear {
-            image = PhotoStorage.loadImage(filename: filename)
-        }
+            .clipped()
+            .onAppear {
+                image = PhotoStorage.loadImage(filename: filename)
+            }
     }
 }
 
