@@ -76,7 +76,9 @@ struct LogbookView: View {
             }
             .navigationTitle("Logbook")
             .sheet(item: $visitForAlternatives) { visit in
-                AlternativePlacePicker(visit: visit)
+                AlternativePlacePicker(visit: visit) {
+                    refreshID = UUID()
+                }
             }
         }
     }
@@ -88,6 +90,10 @@ private struct AlternativePlacePicker: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     let visit: Visit
+    var onPlaceChanged: (() -> Void)?
+
+    @State private var pendingCandidate: PlaceCandidate?
+    @State private var showConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -124,7 +130,8 @@ private struct AlternativePlacePicker: View {
                     Section("Did you mean?") {
                         ForEach(visit.alternativePlaces) { candidate in
                             Button {
-                                reassignVisit(to: candidate)
+                                pendingCandidate = candidate
+                                showConfirmation = true
                             } label: {
                                 HStack {
                                     Image(systemName: PlaceCategorizer.icon(for: candidate.category))
@@ -165,6 +172,20 @@ private struct AlternativePlacePicker: View {
                     Button("Cancel") { dismiss() }
                 }
             }
+            .alert("Change place?", isPresented: $showConfirmation) {
+                Button("Cancel", role: .cancel) {
+                    pendingCandidate = nil
+                }
+                Button("Change") {
+                    if let candidate = pendingCandidate {
+                        reassignVisit(to: candidate)
+                    }
+                }
+            } message: {
+                if let candidate = pendingCandidate {
+                    Text("Change this visit from \"\(visit.place?.displayName ?? "Unknown")\" to \"\(candidate.name)\"?")
+                }
+            }
         }
         .presentationDetents([.medium])
     }
@@ -172,6 +193,7 @@ private struct AlternativePlacePicker: View {
     private func confirmPlace() {
         visit.alternativePlacesData = nil
         try? modelContext.save()
+        onPlaceChanged?()
         dismiss()
     }
 
@@ -180,13 +202,19 @@ private struct AlternativePlacePicker: View {
         let descriptor = FetchDescriptor<Place>()
         let allPlaces = (try? modelContext.fetch(descriptor)) ?? []
 
-        let place: Place
+        // Remove visit from old place's relationship to ensure SwiftData updates both sides
+        if let oldPlace = visit.place,
+           let index = oldPlace.visits.firstIndex(where: { $0.id == visit.id }) {
+            oldPlace.visits.remove(at: index)
+        }
+
+        let newPlace: Place
         if let existing = allPlaces.first(where: {
             abs($0.latitude - candidate.latitude) < threshold && abs($0.longitude - candidate.longitude) < threshold
         }) {
-            place = existing
+            newPlace = existing
         } else {
-            place = Place(
+            newPlace = Place(
                 name: candidate.name,
                 latitude: candidate.latitude,
                 longitude: candidate.longitude,
@@ -194,12 +222,13 @@ private struct AlternativePlacePicker: View {
                 city: candidate.city,
                 state: candidate.state
             )
-            modelContext.insert(place)
+            modelContext.insert(newPlace)
         }
 
-        visit.place = place
+        visit.place = newPlace
         visit.alternativePlacesData = nil
         try? modelContext.save()
+        onPlaceChanged?()
         dismiss()
     }
 }
