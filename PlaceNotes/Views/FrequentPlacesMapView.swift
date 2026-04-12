@@ -13,6 +13,7 @@ struct FrequentPlacesMapView: View {
     @State private var visibleRegion: MKCoordinateRegion?
     @State private var cachedAnnotations: [any MapAnnotationItem] = []
     @State private var showTrackingAlert = false
+    @State private var isRebuildingAnnotations = false
 
     var body: some View {
         NavigationStack {
@@ -39,7 +40,21 @@ struct FrequentPlacesMapView: View {
                     MapScaleView()
                 }
                 .onMapCameraChange(frequency: .onEnd) { context in
-                    visibleRegion = context.region
+                    let newRegion = context.region
+                    // Skip rebuild if the region hasn't changed meaningfully — this
+                    // breaks the feedback loop where annotation updates nudge the
+                    // camera, which triggers another rebuild, and so on.
+                    if let old = visibleRegion {
+                        let spanTolerance = max(old.span.latitudeDelta * 0.02, 0.0001)
+                        let latSame = abs(old.span.latitudeDelta - newRegion.span.latitudeDelta) < spanTolerance
+                        let lonSame = abs(old.span.longitudeDelta - newRegion.span.longitudeDelta) < spanTolerance
+                        let centerLatSame = abs(old.center.latitude - newRegion.center.latitude) < spanTolerance
+                        let centerLonSame = abs(old.center.longitude - newRegion.center.longitude) < spanTolerance
+                        if latSame && lonSame && centerLatSame && centerLonSame {
+                            return
+                        }
+                    }
+                    visibleRegion = newRegion
                     rebuildAnnotations()
                 }
 
@@ -90,14 +105,26 @@ struct FrequentPlacesMapView: View {
 
     /// Rebuilds annotations only when region or data changes — not on every render.
     private func rebuildAnnotations() {
+        guard !isRebuildingAnnotations else { return }
+        isRebuildingAnnotations = true
+        defer { isRebuildingAnnotations = false }
+
         let rankings = Array(viewModel.monthlyPlaces.prefix(50))
-        guard let region = visibleRegion else {
-            cachedAnnotations = rankings.map { SingleItem(ranking: $0) }
-            return
+        let newAnnotations: [any MapAnnotationItem]
+        if let region = visibleRegion {
+            let clusterRadius = region.span.latitudeDelta * 0.08
+            newAnnotations = clusterItems(from: rankings, radius: clusterRadius)
+        } else {
+            newAnnotations = rankings.map { SingleItem(ranking: $0) }
         }
 
-        let clusterRadius = region.span.latitudeDelta * 0.08
-        cachedAnnotations = clusterItems(from: rankings, radius: clusterRadius)
+        // Only update if annotation IDs actually changed — avoids triggering
+        // a Map re-layout that would fire onMapCameraChange again.
+        let oldIDs = cachedAnnotations.map(\.id)
+        let newIDs = newAnnotations.map(\.id)
+        if oldIDs != newIDs {
+            cachedAnnotations = newAnnotations
+        }
     }
 
     private func clusterItems(from rankings: [PlaceRanking], radius: Double) -> [any MapAnnotationItem] {
