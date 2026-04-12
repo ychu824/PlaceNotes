@@ -14,10 +14,12 @@ struct FrequentPlacesMapView: View {
     @State private var cachedAnnotations: [any MapAnnotationItem] = []
     @State private var showTrackingAlert = false
     @State private var isRebuildingAnnotations = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottomTrailing) {
+                if scenePhase != .background {
                 Map(position: $cameraPosition, selection: $selectedPlace) {
                     UserAnnotation()
 
@@ -56,6 +58,7 @@ struct FrequentPlacesMapView: View {
                     }
                     visibleRegion = newRegion
                     rebuildAnnotations()
+                }
                 }
 
                 // Current location button
