@@ -429,12 +429,19 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private func findOrCreatePlace(latitude: Double, longitude: Double, in context: ModelContext, addressOnly: Bool = false) async -> (place: Place, alternatives: [PlaceCandidate]) {
         let threshold = 0.0005 // ~50 meters
 
-        let descriptor = FetchDescriptor<Place>()
-        let allPlaces = (try? context.fetch(descriptor)) ?? []
+        let minLat = latitude - threshold
+        let maxLat = latitude + threshold
+        let minLon = longitude - threshold
+        let maxLon = longitude + threshold
+        let descriptor = FetchDescriptor<Place>(
+            predicate: #Predicate<Place> {
+                $0.latitude >= minLat && $0.latitude <= maxLat &&
+                $0.longitude >= minLon && $0.longitude <= maxLon
+            }
+        )
+        let nearbyPlaces = (try? context.fetch(descriptor)) ?? []
 
-        if let existing = allPlaces.first(where: {
-            abs($0.latitude - latitude) < threshold && abs($0.longitude - longitude) < threshold
-        }) {
+        if let existing = nearbyPlaces.first {
             logger.debug("Found existing place: \(existing.name)")
             return (existing, [])
         }
