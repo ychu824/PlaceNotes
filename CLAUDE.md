@@ -148,3 +148,88 @@ Auto-delete `RawLocationSample` records older than a configurable number of days
 - All SwiftData mutations must happen on `@MainActor` (match existing pattern).
 - Keep `LocationManager` focused on collection; heavy processing belongs in `StayDetector` or a new `STDBSCANEngine`.
 - Export/analysis utilities should be in `Services/` as standalone types.
+
+---
+
+## Swift Best Practices
+
+### Value Types vs Reference Types
+
+- Use `struct` for data that is copied, compared by value, or passed across concurrency boundaries (e.g., `LocationSample`, `StayCluster`).
+- Use `final class` for objects with identity, shared mutable state, or delegate ownership (e.g., `LocationManager`, `TrackingViewModel`).
+- Mark classes `final` by default — only drop it when inheritance is explicitly needed.
+- Prefer `enum` with static methods for namespaced pure logic with no instance state (e.g., `StayDetector`).
+
+### Optionals
+
+- Use `guard let` for early exit; use `if let` only when both branches are meaningful.
+- Avoid force-unwrap (`!`) everywhere except in tests or guaranteed-non-nil outlets. Use `guard` or provide a sensible default instead.
+- Prefer `??` for simple fallbacks over a full `if let` block.
+
+```swift
+// Prefer
+let name = placemark.name ?? placemark.thoroughfare ?? "Unknown Place"
+
+// Avoid
+var name: String
+if let n = placemark.name { name = n } else { name = "Unknown Place" }
+```
+
+### Swift Concurrency
+
+- Annotate ViewModels with `@MainActor` at the class level — eliminates per-method annotation noise and matches the existing pattern.
+- Use `Task { @MainActor in }` to hop to the main actor from non-isolated async contexts (e.g., inside `CLLocationManagerDelegate` callbacks).
+- Prefer `async/await` over completion handlers for all new async work (geocoding, MapKit, export I/O).
+- Use `[weak self]` in Timer callbacks and Combine sinks to avoid retain cycles; in `Task` closures capture `self` weakly only when the enclosing type is a class with a non-trivial lifetime.
+- Never call `try?` on a `Task` that could silently swallow meaningful errors — propagate or log them.
+
+```swift
+// Correct pattern (matches existing code)
+Task { @MainActor in
+    let result = await someAsyncOperation()
+    self.handleResult(result)
+}
+```
+
+### Error Handling
+
+- Use `do / try / catch` for recoverable errors surfaced to the user (export failures, geocoding).
+- Use `try?` only when a nil result is genuinely acceptable and the error is not actionable (e.g., optional SwiftData fetches).
+- Log errors with `os.Logger` before discarding them — never silently drop failures.
+
+### SwiftData
+
+- All `modelContext.insert`, `modelContext.delete`, and `try? modelContext.save()` calls must be on `@MainActor`.
+- Fetch with typed `FetchDescriptor<T>` and `#Predicate` — avoid raw string predicates.
+- Cascade delete rules belong on the parent model (`@Relationship(deleteRule: .cascade)`), not at call sites.
+- Do not hold strong references to `@Model` instances across actor boundaries — refetch by persistent identifier if needed.
+
+```swift
+// Correct fetch pattern
+let descriptor = FetchDescriptor<RawLocationSample>(
+    predicate: #Predicate { $0.timestamp < cutoff },
+    sortBy: [SortDescriptor(\.timestamp)]
+)
+let stale = (try? modelContext.fetch(descriptor)) ?? []
+```
+
+### Naming
+
+- Use full words — `horizontalAccuracy`, not `hAcc`. CoreLocation's own API sets the convention.
+- Boolean properties read as assertions: `isAccurate`, `isStationary`, `isRecent`.
+- Async functions that return a value: verb + noun (`fetchPlace`, `resolveCoordinate`). Async functions with side effects: verb (`recordVisit`, `exportCSV`).
+- Avoid type name repetition in property names: `visit.arrivalDate`, not `visit.visitArrivalDate`.
+
+### SwiftUI
+
+- Keep Views as dumb as possible — bind to a ViewModel or pass values directly; no business logic in View bodies.
+- Prefer `@StateObject` for ViewModels owned by the view; `@ObservedObject` for injected ones.
+- Use `.task { }` modifier for async work tied to a view's lifetime — it cancels automatically on disappear.
+- Break large `body` computations into private `@ViewBuilder` computed properties or sub-views, not helper methods returning `some View`.
+
+### Memory & Performance
+
+- Invalidate `Timer` instances in `deinit` or `stopMonitoring` — orphaned timers hold strong references.
+- Prefer lazy evaluation (`lazy var`) for expensive computed setup that may never be needed.
+- For large SwiftData result sets (e.g., bulk `RawLocationSample` export), stream or batch results rather than loading all rows into memory at once.
+- Avoid creating `CLGeocoder` or `MKLocalSearch` instances in tight loops — these are rate-limited by the OS.
