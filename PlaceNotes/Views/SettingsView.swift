@@ -13,6 +13,11 @@ struct SettingsView: View {
     @State private var minStayInputText = ""
     @State private var showClearDataConfirmation = false
     @State private var storageSizeText = "Calculating…"
+    @State private var rawSampleCount: Int = 0
+    @State private var showRetentionInput = false
+    @State private var retentionInputText = ""
+    @State private var csvFile: CSVFile?
+    @State private var showExporter = false
 
     var body: some View {
         NavigationStack {
@@ -78,6 +83,35 @@ struct SettingsView: View {
                 }
 
                 Section {
+                    LabeledContent("Samples Collected", value: "\(rawSampleCount)")
+                    Button {
+                        retentionInputText = "\(settings.rawLocationRetentionDays)"
+                        showRetentionInput = true
+                    } label: {
+                        HStack {
+                            Text("Retention Period")
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            Text("\(settings.rawLocationRetentionDays) days")
+                                .font(.body.bold())
+                                .foregroundStyle(Color.accentColor)
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    Button("Export CSV") {
+                        exportRawSamples()
+                    }
+                    .disabled(rawSampleCount == 0)
+                } header: {
+                    Text("Raw Location Data")
+                } footer: {
+                    Text("Raw GPS samples are stored for ST-DBSCAN analysis and deleted automatically after the retention period.")
+                }
+                .onAppear { refreshRawSampleCount() }
+
+                Section {
                     Button(role: .destructive) {
                         showClearDataConfirmation = true
                     } label: {
@@ -114,7 +148,46 @@ struct SettingsView: View {
             } message: {
                 Text("Enter the minimum number of minutes a visit must last to be recorded (1–1440).\n\nCurrently set to \(settings.minStayMinutes) min.")
             }
+            .alert("Set Retention Period", isPresented: $showRetentionInput) {
+                TextField("Days", text: $retentionInputText)
+                    .keyboardType(.numberPad)
+
+                Button("Apply") {
+                    applyRetentionDays()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Raw GPS samples older than this many days will be deleted automatically (1–365).\n\nCurrently set to \(settings.rawLocationRetentionDays) days.")
+            }
+            .fileExporter(
+                isPresented: $showExporter,
+                document: csvFile,
+                contentType: .commaSeparatedText,
+                defaultFilename: "location_samples_\(formattedDate())"
+            ) { _ in }
         }
+    }
+
+    private func refreshRawSampleCount() {
+        rawSampleCount = (try? modelContext.fetchCount(FetchDescriptor<RawLocationSample>())) ?? 0
+    }
+
+    private func exportRawSamples() {
+        let descriptor = FetchDescriptor<RawLocationSample>(sortBy: [SortDescriptor(\.timestamp)])
+        let samples = (try? modelContext.fetch(descriptor)) ?? []
+        csvFile = CSVFile(data: LocationExporter.exportCSV(from: samples))
+        showExporter = true
+    }
+
+    private func applyRetentionDays() {
+        guard let value = Int(retentionInputText), value >= 1, value <= 365 else { return }
+        settings.rawLocationRetentionDays = value
+    }
+
+    private func formattedDate() -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f.string(from: Date())
     }
 
     private func applyMinStay() {

@@ -11,6 +11,10 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(milestoneVisitCounts, forKey: "milestoneVisitCounts") }
     }
 
+    @Published var rawLocationRetentionDays: Int {
+        didSet { UserDefaults.standard.set(rawLocationRetentionDays, forKey: "rawLocationRetentionDays") }
+    }
+
     @Published var trackingState: TrackingState {
         didSet {
             if let data = try? JSONEncoder().encode(trackingState) {
@@ -25,6 +29,9 @@ final class AppSettings: ObservableObject {
 
         let savedMilestones = UserDefaults.standard.array(forKey: "milestoneVisitCounts") as? [Int]
         self.milestoneVisitCounts = savedMilestones ?? [5, 10, 25, 50, 100]
+
+        let savedRetention = UserDefaults.standard.integer(forKey: "rawLocationRetentionDays")
+        self.rawLocationRetentionDays = savedRetention > 0 ? savedRetention : 30
 
         if let data = UserDefaults.standard.data(forKey: "trackingState"),
            let state = try? JSONDecoder().decode(TrackingState.self, from: data) {

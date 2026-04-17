@@ -25,7 +25,7 @@ struct PlaceNotesApp: App {
 
         let makeContainer = {
             let config = ModelConfiguration(url: storeURL)
-            return try ModelContainer(for: Place.self, Visit.self, CustomCategory.self, JournalEntry.self, configurations: config)
+            return try ModelContainer(for: Place.self, Visit.self, CustomCategory.self, JournalEntry.self, RawLocationSample.self, configurations: config)
         }
 
         do {
