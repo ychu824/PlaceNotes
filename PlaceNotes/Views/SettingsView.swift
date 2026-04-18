@@ -1,5 +1,22 @@
 import SwiftUI
 import SwiftData
+import UniformTypeIdentifiers
+
+struct CSVFile: FileDocument {
+    static var readableContentTypes: [UTType] { [.commaSeparatedText] }
+
+    var data: Data
+
+    init(data: Data) { self.data = data }
+
+    init(configuration: ReadConfiguration) throws {
+        self.data = configuration.file.regularFileContents ?? Data()
+    }
+
+    func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
+        FileWrapper(regularFileWithContents: data)
+    }
+}
 
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
