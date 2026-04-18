@@ -18,6 +18,35 @@ struct CSVFile: FileDocument {
     }
 }
 
+private enum LocationExporter {
+    private static let iso8601: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    static func exportCSV(from samples: [RawLocationSample]) -> Data {
+        var lines = ["id,latitude,longitude,timestamp,horizontalAccuracy,speed,altitude,verticalAccuracy,course,filterStatus,motionActivity"]
+        for s in samples {
+            let row: [String] = [
+                s.id.uuidString,
+                "\(s.latitude)",
+                "\(s.longitude)",
+                iso8601.string(from: s.timestamp),
+                "\(s.horizontalAccuracy)",
+                "\(s.speed)",
+                s.altitude.map { "\($0)" } ?? "",
+                s.verticalAccuracy.map { "\($0)" } ?? "",
+                s.course.map { "\($0)" } ?? "",
+                s.filterStatus,
+                s.motionActivity ?? ""
+            ]
+            lines.append(row.joined(separator: ","))
+        }
+        return lines.joined(separator: "\n").data(using: .utf8) ?? Data()
+    }
+}
+
 struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query private var places: [Place]
@@ -33,7 +62,7 @@ struct SettingsView: View {
     @State private var rawSampleCount: Int = 0
     @State private var showRetentionInput = false
     @State private var retentionInputText = ""
-    @State private var csvFile: CSVFile?
+    @State private var exportData: Data = Data()
     @State private var showExporter = false
 
     var body: some View {
@@ -178,7 +207,7 @@ struct SettingsView: View {
             }
             .fileExporter(
                 isPresented: $showExporter,
-                document: csvFile,
+                document: CSVFile(data: exportData),
                 contentType: .commaSeparatedText,
                 defaultFilename: "location_samples_\(formattedDate())"
             ) { _ in }
@@ -192,7 +221,7 @@ struct SettingsView: View {
     private func exportRawSamples() {
         let descriptor = FetchDescriptor<RawLocationSample>(sortBy: [SortDescriptor(\.timestamp)])
         let samples = (try? modelContext.fetch(descriptor)) ?? []
-        csvFile = CSVFile(data: LocationExporter.exportCSV(from: samples))
+        exportData = LocationExporter.exportCSV(from: samples)
         showExporter = true
     }
 
