@@ -85,6 +85,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     func configure(modelContext: ModelContext) {
         self.modelContext = modelContext
         logger.info("ModelContext configured")
+        cleanupStaleRawSamples(context: modelContext)
     }
 
     func requestAuthorization() {
@@ -251,6 +252,35 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             logger.debug("Sample dropped — speed \(location.speed)m/s > \(self.maxStationarySpeed)m/s threshold")
         }
 
+        let filterStatus: String
+        if !isAccurate {
+            filterStatus = "rejected-accuracy"
+        } else if !isStationary {
+            filterStatus = "rejected-speed"
+        } else {
+            filterStatus = "accepted"
+        }
+
+        let lat = location.coordinate.latitude
+        let lon = location.coordinate.longitude
+        let ts = location.timestamp
+        let hAcc = location.horizontalAccuracy
+        let spd = location.speed
+        let alt = location.altitude
+        let vAcc = location.verticalAccuracy
+        let crs = location.course >= 0 ? location.course : nil
+
+        Task { @MainActor [weak self] in
+            guard let ctx = self?.modelContext else { return }
+            let raw = RawLocationSample(
+                latitude: lat, longitude: lon, timestamp: ts,
+                horizontalAccuracy: hAcc, speed: spd,
+                altitude: alt, verticalAccuracy: vAcc, course: crs,
+                filterStatus: filterStatus
+            )
+            ctx.insert(raw)
+        }
+
         let sample = LocationSample(
             coordinate: location.coordinate,
             timestamp: location.timestamp,
@@ -301,6 +331,30 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         logger.error("Location error: \(error.localizedDescription)")
         if let clError = error as? CLError {
             logger.error("CLError code: \(clError.code.rawValue)")
+        }
+    }
+
+    // MARK: - Raw Sample Retention
+
+    private func cleanupStaleRawSamples(context: ModelContext) {
+        let cutoff = Calendar.current.date(
+            byAdding: .day,
+            value: -settings.rawLocationRetentionDays,
+            to: Date()
+        ) ?? Date()
+
+        Task { @MainActor in
+            let descriptor = FetchDescriptor<RawLocationSample>(
+                predicate: #Predicate { $0.timestamp < cutoff }
+            )
+            let stale = (try? context.fetch(descriptor)) ?? []
+            for sample in stale {
+                context.delete(sample)
+            }
+            if !stale.isEmpty {
+                try? context.save()
+                logger.info("Deleted \(stale.count) raw samples older than \(self.settings.rawLocationRetentionDays) days")
+            }
         }
     }
 
