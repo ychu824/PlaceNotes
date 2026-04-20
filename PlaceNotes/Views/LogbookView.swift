@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import CoreLocation
 
 struct LogbookView: View {
     @Environment(\.modelContext) private var modelContext
@@ -191,26 +192,27 @@ private struct AlternativePlacePicker: View {
     }
 
     private func confirmPlace() {
-        visit.alternativePlacesData = nil
-        try? modelContext.save()
         onPlaceChanged?()
         dismiss()
     }
 
     private func reassignVisit(to candidate: PlaceCandidate) {
-        let threshold = 0.0005
+        let threshold = 0.0001
         let descriptor = FetchDescriptor<Place>()
         let allPlaces = (try? modelContext.fetch(descriptor)) ?? []
 
-        // Remove visit from old place's relationship to ensure SwiftData updates both sides
-        if let oldPlace = visit.place,
+        let previousPlace = visit.place
+
+        if let oldPlace = previousPlace,
            let index = oldPlace.visits.firstIndex(where: { $0.id == visit.id }) {
             oldPlace.visits.remove(at: index)
         }
 
         let newPlace: Place
         if let existing = allPlaces.first(where: {
-            abs($0.latitude - candidate.latitude) < threshold && abs($0.longitude - candidate.longitude) < threshold
+            $0.name == candidate.name &&
+            abs($0.latitude - candidate.latitude) < threshold &&
+            abs($0.longitude - candidate.longitude) < threshold
         }) {
             newPlace = existing
         } else {
@@ -226,7 +228,30 @@ private struct AlternativePlacePicker: View {
         }
 
         visit.place = newPlace
-        visit.alternativePlacesData = nil
+
+        var remaining = visit.alternativePlaces.filter { $0.id != candidate.id }
+        if let prev = previousPlace, prev.id != newPlace.id {
+            let alreadyListed = remaining.contains { cand in
+                cand.name == prev.name &&
+                abs(cand.latitude - prev.latitude) < threshold &&
+                abs(cand.longitude - prev.longitude) < threshold
+            }
+            if !alreadyListed {
+                let newCenter = CLLocation(latitude: newPlace.latitude, longitude: newPlace.longitude)
+                let prevCenter = CLLocation(latitude: prev.latitude, longitude: prev.longitude)
+                remaining.append(PlaceCandidate(
+                    name: prev.name,
+                    latitude: prev.latitude,
+                    longitude: prev.longitude,
+                    category: prev.category,
+                    city: prev.city,
+                    state: prev.state,
+                    distanceMeters: prevCenter.distance(from: newCenter)
+                ))
+            }
+        }
+        visit.alternativePlaces = remaining
+
         try? modelContext.save()
         onPlaceChanged?()
         dismiss()
