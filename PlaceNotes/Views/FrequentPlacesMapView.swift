@@ -608,7 +608,7 @@ struct EmojiTextField: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UIEmojiTextField, context: Context) {
-        uiView.text = text
+        if uiView.text != text { uiView.text = text }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -623,13 +623,8 @@ struct EmojiTextField: UIViewRepresentable {
         }
 
         func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool {
-            // Allow deletions
             if string.isEmpty { return true }
-            // Only allow emoji characters
-            return string.unicodeScalars.allSatisfy { scalar in
-                scalar.properties.isEmoji && scalar.properties.isEmojiPresentation
-                || scalar.properties.isEmoji && scalar.value > 0x238C
-            }
+            return string.allSatisfy { $0.isEmoji }
         }
 
         @objc func textChanged(_ sender: UITextField) {
@@ -645,6 +640,15 @@ struct EmojiTextField: UIViewRepresentable {
 
         func textFieldDidBeginEditing(_ textField: UITextField) {
             textField.text = text
+        }
+    }
+}
+
+private extension Character {
+    var isEmoji: Bool {
+        unicodeScalars.contains { scalar in
+            scalar.properties.isEmojiPresentation ||
+            (scalar.properties.isEmoji && scalar.value > 0x238C)
         }
     }
 }
