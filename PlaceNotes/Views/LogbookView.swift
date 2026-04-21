@@ -90,9 +90,12 @@ struct LogbookView: View {
             .alert("Delete Visit?", isPresented: $showDeleteConfirmation) {
                 Button("Delete", role: .destructive) {
                     if let visit = visitToDelete {
+                        if let place = visit.place,
+                           let index = place.visits.firstIndex(where: { $0.id == visit.id }) {
+                            place.visits.remove(at: index)
+                        }
                         modelContext.delete(visit)
                         try? modelContext.save()
-                        refreshID = UUID()
                         visitToDelete = nil
                     }
                 }
@@ -315,12 +318,13 @@ private struct MonthSection: View {
                         }
                     }
                     .buttonStyle(.plain)
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) {
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button {
                             onDelete?(visit)
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
+                        .tint(.red)
                     }
                 }
             }
