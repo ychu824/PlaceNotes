@@ -7,6 +7,8 @@ struct LogbookView: View {
     @Query private var places: [Place]
     @EnvironmentObject var settings: AppSettings
     @State private var visitForAlternatives: Visit?
+    @State private var visitToDelete: Visit?
+    @State private var showDeleteConfirmation = false
     @State private var refreshID = UUID()
 
     private var groupedVisits: [(year: Int, months: [(month: Int, visits: [Visit])])] {
@@ -57,6 +59,10 @@ struct LogbookView: View {
                                         visits: monthGroup.visits,
                                         onPickAlternative: { visit in
                                             visitForAlternatives = visit
+                                        },
+                                        onDelete: { visit in
+                                            visitToDelete = visit
+                                            showDeleteConfirmation = true
                                         }
                                     )
                                 }
@@ -80,6 +86,24 @@ struct LogbookView: View {
                 AlternativePlacePicker(visit: visit) {
                     refreshID = UUID()
                 }
+            }
+            .alert("Delete Visit?", isPresented: $showDeleteConfirmation) {
+                Button("Delete", role: .destructive) {
+                    if let visit = visitToDelete {
+                        if let place = visit.place,
+                           let index = place.visits.firstIndex(where: { $0.id == visit.id }) {
+                            place.visits.remove(at: index)
+                        }
+                        modelContext.delete(visit)
+                        try? modelContext.save()
+                        visitToDelete = nil
+                    }
+                }
+                Button("Cancel", role: .cancel) {
+                    visitToDelete = nil
+                }
+            } message: {
+                Text("This visit will be permanently deleted.")
             }
         }
     }
@@ -263,6 +287,7 @@ private struct MonthSection: View {
     let month: Int
     let visits: [Visit]
     var onPickAlternative: ((Visit) -> Void)?
+    var onDelete: ((Visit) -> Void)?
 
     private var monthName: String {
         let formatter = DateFormatter()
@@ -293,6 +318,14 @@ private struct MonthSection: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button {
+                            onDelete?(visit)
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                        .tint(.red)
+                    }
                 }
             }
         } label: {
