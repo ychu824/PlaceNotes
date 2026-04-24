@@ -52,6 +52,8 @@ enum PlaceResolver {
             logger.debug("Found existing place: \(existing.name)")
             return (existing, [])
         }
+        let threshold = 0.0005
+        logger.info("No existing place within \(threshold) degrees — resolving (addressOnly: \(addressOnly))")
         let resolved = await resolve(latitude: latitude, longitude: longitude, addressOnly: addressOnly)
         let place = Place(
             name: resolved.name,
@@ -62,7 +64,7 @@ enum PlaceResolver {
             state: resolved.state
         )
         context.insert(place)
-        logger.notice("Created new place: \(resolved.name) (source: \(resolved.source))")
+        logger.notice("Created new place: \(resolved.name) (category: \(resolved.category ?? "none"), city: \(resolved.city ?? "none"), source: \(resolved.source))")
         return (place, resolved.alternatives)
     }
 
@@ -71,6 +73,7 @@ enum PlaceResolver {
     private static func resolve(latitude: Double, longitude: Double, addressOnly: Bool) async -> ResolvedPlace {
         let geoInfo = await reverseGeocodeDetails(latitude: latitude, longitude: longitude)
         if addressOnly {
+            logger.info("Address-only fallback: \(geoInfo.name)")
             return ResolvedPlace(name: geoInfo.name, category: nil, city: geoInfo.city, state: geoInfo.state, source: "address-fallback")
         }
         if let poi = await searchNearbyPOI(latitude: latitude, longitude: longitude, geoInfo: geoInfo) {
@@ -101,46 +104,55 @@ enum PlaceResolver {
                 }
                 .sorted { $0.distance < $1.distance }
 
-            guard let best = candidates.first else { return nil }
-
-            let category: String? = {
-                if let poiCategory = best.item.pointOfInterestCategory,
-                   let match = PlaceCategorizer.categoryMap.first(where: { $0.category == poiCategory }) {
-                    return match.label
-                }
-                return nil
-            }()
-
-            let altGeoInfo: GeoDetails
-            if let geoInfo {
-                altGeoInfo = geoInfo
-            } else {
-                altGeoInfo = await reverseGeocodeDetails(latitude: latitude, longitude: longitude)
-            }
-            let alternatives: [PlaceCandidate] = Array(candidates.dropFirst().prefix(2)).map { candidate in
-                let altCategory: String? = {
-                    if let poiCat = candidate.item.pointOfInterestCategory,
-                       let match = PlaceCategorizer.categoryMap.first(where: { $0.category == poiCat }) {
+            if let best = candidates.first {
+                let category: String? = {
+                    if let poiCategory = best.item.pointOfInterestCategory,
+                       let match = PlaceCategorizer.categoryMap.first(where: { $0.category == poiCategory }) {
                         return match.label
                     }
                     return nil
                 }()
-                return PlaceCandidate(
-                    name: candidate.name,
-                    latitude: candidate.item.placemark.coordinate.latitude,
-                    longitude: candidate.item.placemark.coordinate.longitude,
-                    category: altCategory,
-                    city: altGeoInfo.city,
-                    state: altGeoInfo.state,
-                    distanceMeters: candidate.distance
-                )
+
+                logger.info("MapKit POI found: \(best.name) (\(Int(best.distance))m away, category: \(category ?? "none"))")
+
+                let altGeoInfo: GeoDetails
+                if let geoInfo {
+                    altGeoInfo = geoInfo
+                } else {
+                    altGeoInfo = await reverseGeocodeDetails(latitude: latitude, longitude: longitude)
+                }
+                let alternatives: [PlaceCandidate] = Array(candidates.dropFirst().prefix(2)).map { candidate in
+                    let altCategory: String? = {
+                        if let poiCat = candidate.item.pointOfInterestCategory,
+                           let match = PlaceCategorizer.categoryMap.first(where: { $0.category == poiCat }) {
+                            return match.label
+                        }
+                        return nil
+                    }()
+                    return PlaceCandidate(
+                        name: candidate.name,
+                        latitude: candidate.item.placemark.coordinate.latitude,
+                        longitude: candidate.item.placemark.coordinate.longitude,
+                        category: altCategory,
+                        city: altGeoInfo.city,
+                        state: altGeoInfo.state,
+                        distanceMeters: candidate.distance
+                    )
+                }
+
+                if !alternatives.isEmpty {
+                    logger.info("  alternatives: \(alternatives.map { "\($0.name) (\(Int($0.distanceMeters))m)" })")
+                }
+
+                return ResolvedPlace(name: best.name, category: category, city: nil, state: nil, source: "mapkit", alternatives: alternatives)
             }
 
-            return ResolvedPlace(name: best.name, category: category, city: nil, state: nil, source: "mapkit", alternatives: alternatives)
+            logger.debug("No MapKit POI within \(Int(searchRadius))m of (\(latitude), \(longitude))")
         } catch {
             logger.warning("MKLocalSearch failed: \(error.localizedDescription)")
-            return nil
         }
+
+        return nil
     }
 
     private static func reverseGeocodeDetails(latitude: Double, longitude: Double) async -> GeoDetails {
@@ -154,7 +166,10 @@ enum PlaceResolver {
                     ?? placemark.subLocality
                     ?? placemark.locality
                     ?? "Unknown Place"
-                return GeoDetails(name: name, city: placemark.locality, state: placemark.administrativeArea)
+                let city = placemark.locality
+                let state = placemark.administrativeArea
+                logger.debug("Reverse geocoded (\(latitude), \(longitude)) -> \(name), city: \(city ?? "nil"), state: \(state ?? "nil")")
+                return GeoDetails(name: name, city: city, state: state)
             }
         } catch {
             logger.error("Geocoding failed: \(error.localizedDescription)")
