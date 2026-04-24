@@ -1,6 +1,5 @@
 import Foundation
 import CoreLocation
-import MapKit
 import SwiftData
 import os
 
@@ -200,7 +199,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         let useAddressFallback = accuracy > maxAccuracyForVenueLabel || confidence == .low
 
         Task { @MainActor in
-            let (place, alternatives) = await findOrCreatePlace(
+            let (place, alternatives) = await PlaceResolver.findOrCreate(
                 latitude: clVisit.coordinate.latitude,
                 longitude: clVisit.coordinate.longitude,
                 in: modelContext,
@@ -404,7 +403,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         logger.notice("Recording dwell visit: center=(\(cluster.center.latitude), \(cluster.center.longitude)), \(cluster.samples.count) samples, confidence=\(confidence.rawValue), addressOnly=\(useAddressFallback)")
 
         Task { @MainActor in
-            let (place, alternatives) = await findOrCreatePlace(
+            let (place, alternatives) = await PlaceResolver.findOrCreate(
                 latitude: cluster.center.latitude,
                 longitude: cluster.center.longitude,
                 in: context,
@@ -477,174 +476,4 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         return isDup
     }
 
-    // MARK: - Place Resolution
-
-    @MainActor
-    private func findOrCreatePlace(latitude: Double, longitude: Double, in context: ModelContext, addressOnly: Bool = false) async -> (place: Place, alternatives: [PlaceCandidate]) {
-        let threshold = 0.0005 // ~50 meters
-
-        let minLat = latitude - threshold
-        let maxLat = latitude + threshold
-        let minLon = longitude - threshold
-        let maxLon = longitude + threshold
-        let descriptor = FetchDescriptor<Place>(
-            predicate: #Predicate<Place> {
-                $0.latitude >= minLat && $0.latitude <= maxLat &&
-                $0.longitude >= minLon && $0.longitude <= maxLon
-            }
-        )
-        let nearbyPlaces = (try? context.fetch(descriptor)) ?? []
-
-        if let existing = nearbyPlaces.first {
-            logger.debug("Found existing place: \(existing.name)")
-            return (existing, [])
-        }
-
-        logger.info("No existing place within \(threshold) degrees — resolving (addressOnly: \(addressOnly))")
-        let resolved = await resolvePlace(latitude: latitude, longitude: longitude, addressOnly: addressOnly)
-        let place = Place(name: resolved.name, latitude: latitude, longitude: longitude, category: resolved.category, city: resolved.city, state: resolved.state)
-        context.insert(place)
-        logger.notice("Created new place: \(resolved.name) (category: \(resolved.category ?? "none"), city: \(resolved.city ?? "none"), source: \(resolved.source))")
-        return (place, resolved.alternatives)
-    }
-
-    // MARK: - Place Name + Category Resolution
-
-    private struct ResolvedPlace {
-        let name: String
-        let category: String?
-        let city: String?
-        let state: String?
-        let source: String  // "mapkit", "geocoder", or "address-fallback"
-        var alternatives: [PlaceCandidate] = []
-    }
-
-    /// Resolves a coordinate to a place name + category + city/state.
-    /// When `addressOnly` is true (low confidence), skips POI search and returns address.
-    private func resolvePlace(latitude: Double, longitude: Double, addressOnly: Bool = false) async -> ResolvedPlace {
-        let geoInfo = await reverseGeocodeDetails(latitude: latitude, longitude: longitude)
-
-        if addressOnly {
-            logger.info("Address-only fallback: \(geoInfo.name)")
-            return ResolvedPlace(name: geoInfo.name, category: nil, city: geoInfo.city, state: geoInfo.state, source: "address-fallback")
-        }
-
-        // Try to find a named business/POI via MapKit
-        if let poi = await searchNearbyPOI(latitude: latitude, longitude: longitude, geoInfo: geoInfo) {
-            return ResolvedPlace(name: poi.name, category: poi.category, city: geoInfo.city, state: geoInfo.state, source: poi.source, alternatives: poi.alternatives)
-        }
-
-        // Fall back to reverse geocoding + categorization
-        let categoryResult = await PlaceCategorizer.categorize(latitude: latitude, longitude: longitude)
-        return ResolvedPlace(name: geoInfo.name, category: categoryResult?.label, city: geoInfo.city, state: geoInfo.state, source: "geocoder")
-    }
-
-    /// Searches for the nearest named business/POI using coordinate-based search.
-    /// Search radius scales with accuracy — tighter accuracy means smaller, more precise search.
-    private func searchNearbyPOI(latitude: Double, longitude: Double, geoInfo: GeoDetails? = nil) async -> ResolvedPlace? {
-        let coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
-        let targetLocation = CLLocation(latitude: latitude, longitude: longitude)
-        // Scale search radius: use 150m for precise locations, up to 250m max
-        let searchRadius: CLLocationDistance = 150
-
-        let request = MKLocalPointsOfInterestRequest(center: coordinate, radius: searchRadius)
-        request.pointOfInterestFilter = .includingAll
-
-        let search = MKLocalSearch(request: request)
-
-        do {
-            let response = try await search.start()
-
-            let candidates = response.mapItems
-                .compactMap { item -> (item: MKMapItem, distance: CLLocationDistance, name: String)? in
-                    guard let name = item.name, !name.isEmpty,
-                          let itemLocation = item.placemark.location else { return nil }
-                    let dist = itemLocation.distance(from: targetLocation)
-                    guard dist <= searchRadius else { return nil }
-                    return (item, dist, name)
-                }
-                .sorted { $0.distance < $1.distance }
-
-            if let best = candidates.first {
-                let category: String?
-                if let poiCategory = best.item.pointOfInterestCategory,
-                   let match = PlaceCategorizer.categoryMap.first(where: { $0.category == poiCategory }) {
-                    category = match.label
-                } else {
-                    category = nil
-                }
-
-                logger.info("MapKit POI found: \(best.name) (\(Int(best.distance))m away, category: \(category ?? "none"))")
-
-                let altGeoInfo: GeoDetails
-                if let geoInfo {
-                    altGeoInfo = geoInfo
-                } else {
-                    altGeoInfo = await reverseGeocodeDetails(latitude: latitude, longitude: longitude)
-                }
-                let alternatives: [PlaceCandidate] = Array(candidates.dropFirst().prefix(2)).map { candidate in
-                    let altCategory: String?
-                    if let poiCat = candidate.item.pointOfInterestCategory,
-                       let match = PlaceCategorizer.categoryMap.first(where: { $0.category == poiCat }) {
-                        altCategory = match.label
-                    } else {
-                        altCategory = nil
-                    }
-                    let altLat = candidate.item.placemark.coordinate.latitude
-                    let altLon = candidate.item.placemark.coordinate.longitude
-                    return PlaceCandidate(
-                        name: candidate.name,
-                        latitude: altLat,
-                        longitude: altLon,
-                        category: altCategory,
-                        city: altGeoInfo.city,
-                        state: altGeoInfo.state,
-                        distanceMeters: candidate.distance
-                    )
-                }
-
-                if !alternatives.isEmpty {
-                    logger.info("  alternatives: \(alternatives.map { "\($0.name) (\(Int($0.distanceMeters))m)" })")
-                }
-
-                return ResolvedPlace(name: best.name, category: category, city: nil, state: nil, source: "mapkit", alternatives: alternatives)
-            }
-
-            logger.debug("No MapKit POI within \(Int(searchRadius))m of (\(latitude), \(longitude))")
-        } catch {
-            logger.warning("MKLocalSearch failed: \(error.localizedDescription)")
-        }
-
-        return nil
-    }
-
-    private struct GeoDetails {
-        let name: String
-        let city: String?
-        let state: String?
-    }
-
-    /// Reverse geocodes a coordinate to get name, city, and state.
-    private func reverseGeocodeDetails(latitude: Double, longitude: Double) async -> GeoDetails {
-        let geocoder = CLGeocoder()
-        let location = CLLocation(latitude: latitude, longitude: longitude)
-
-        do {
-            let placemarks = try await geocoder.reverseGeocodeLocation(location)
-            if let placemark = placemarks.first {
-                let name = placemark.name
-                    ?? placemark.thoroughfare
-                    ?? placemark.subLocality
-                    ?? placemark.locality
-                    ?? "Unknown Place"
-                let city = placemark.locality
-                let state = placemark.administrativeArea
-                logger.debug("Reverse geocoded (\(latitude), \(longitude)) -> \(name), city: \(city ?? "nil"), state: \(state ?? "nil")")
-                return GeoDetails(name: name, city: city, state: state)
-            }
-        } catch {
-            logger.error("Geocoding failed: \(error.localizedDescription)")
-        }
-        return GeoDetails(name: "Unknown Place", city: nil, state: nil)
-    }
 }
