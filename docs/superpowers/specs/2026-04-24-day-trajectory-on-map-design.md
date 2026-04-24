@@ -25,12 +25,14 @@ Both are satisfied by a single-day, view-only trajectory map in v1. Date-range v
 
 ## User Flow
 
-1. User opens the **Logbook** tab and scrolls to a day.
-2. Each day section header shows a small trailing **map** button (e.g., `Image(systemName: "map")`).
-3. Tapping it pushes `DayTrajectoryView` onto the existing `NavigationStack`.
-4. The screen shows a full-bleed map with that day's path (gradient by time of day) and the day's Place pins.
+1. User opens the **Logbook** tab and expands a Month section.
+2. Each `LogbookVisitRow` exposes a leading `swipeActions` button (`Image(systemName: "map")`, blue tint) labeled "Map".
+3. Swiping a visit row right and tapping **Map** pushes `DayTrajectoryView(day:)` onto the existing `NavigationStack`, with `day` set to the local-day of that visit's `arrivalDate`.
+4. The screen shows a full-bleed map with that day's path (gradient by time of day) and that day's Place pins.
 5. Tapping a Place pin opens the existing `PlaceDetailSheet` (same component already used by the map tab).
 6. Back button returns to the Logbook.
+
+**Note on placement:** `LogbookView` currently groups Year → Month → flat list of visits — no day sub-grouping exists. A per-visit entry was chosen over restructuring Logbook into day sections to minimize churn in an unrelated component. Adding day sub-grouping later is independent of this feature.
 
 ## Visual Design
 
@@ -61,7 +63,7 @@ Views/
 
 ### Modified files
 
-- `Views/LogbookView.swift` — add trailing map button to each day section header; push `DayTrajectoryView(day:)` on tap.
+- `Views/LogbookView.swift` — add a leading `swipeActions` "Map" button on `LogbookVisitRow`; push `DayTrajectoryView(day:)` for the visit's local-day on tap.
 
 ### No changes to
 
