@@ -1,35 +1,20 @@
-"""
-Two-Stage ST-DBSCAN Pipeline for Trip Detection
-================================================
-PlaceNotes project — scripts/st_dbscan_pipeline.py
+"""Two-stage ST-DBSCAN pipeline for stay-point and trip detection.
 
-Usage:
-    python scripts/st_dbscan_pipeline.py <path_to_csv> [--tau_gap 600] [--eps 50] [--min_pts 3]
-
-This script implements the two-stage approach:
-  Stage 1: Temporal gap segmentation (split trajectory by time gaps > tau_gap)
-  Stage 2: Spatial DBSCAN within each segment to find stay points
-
-Output:
-  - Console summary of detected stay points and trips
-  - Annotated CSV with cluster labels
-  - (Optional) HTML map visualization
+Stage 1: Temporal gap segmentation (split trajectory by time gaps > tau_gap).
+Stage 2: Spatial DBSCAN within each segment to find stay points.
 """
 
-import argparse
 import csv
 import json
 import math
 import os
-import sys
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Optional
 
 
-# ---------------------------------------------------------------------------
-# Data structures
-# ---------------------------------------------------------------------------
+EARTH_RADIUS_M = 6_371_000
+
 
 @dataclass
 class LocationSample:
@@ -45,7 +30,6 @@ class LocationSample:
     course: Optional[float]
     filter_status: str
     motion_activity: str
-    # Computed during pipeline
     segment_id: int = -1
     cluster_id: int = -1  # -1 = noise (in motion)
     label: str = ""       # "stay" or "moving"
@@ -61,7 +45,7 @@ class StayPoint:
     arrival: datetime
     departure: datetime
     sample_count: int
-    radius_m: float  # max distance from center to any point in cluster
+    radius_m: float
 
 
 @dataclass
@@ -74,51 +58,39 @@ class Trip:
     end_time: datetime
     duration_seconds: float
     distance_m: float
-    samples: list  # LocationSamples during this trip
+    samples: list
     avg_speed_ms: float
     max_speed_ms: float
-    transport_mode: str  # inferred: walk / bike / drive / unknown
+    transport_mode: str
 
-
-# ---------------------------------------------------------------------------
-# Utilities
-# ---------------------------------------------------------------------------
 
 def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Distance in meters between two (lat, lon) pairs."""
-    R = 6_371_000  # Earth radius in meters
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = (math.sin(dlat / 2) ** 2 +
          math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) *
          math.sin(dlon / 2) ** 2)
-    return R * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return EARTH_RADIUS_M * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 def parse_timestamp(ts_str: str) -> datetime:
-    """Parse ISO 8601 timestamp string to datetime."""
-    # Handle both "2026-04-18T05:22:49.074Z" and without fractional seconds
     ts_str = ts_str.replace("Z", "+00:00")
     return datetime.fromisoformat(ts_str)
 
 
 def infer_transport_mode(avg_speed_ms: float, max_speed_ms: float) -> str:
-    """Simple rule-based transport mode inference from speed."""
     if avg_speed_ms < 0:
         return "unknown"
-    elif avg_speed_ms < 2.0:       # < 7.2 km/h
+    elif avg_speed_ms < 2.0:
         return "walk"
-    elif avg_speed_ms < 6.0:       # < 21.6 km/h
+    elif avg_speed_ms < 6.0:
         return "bike"
-    elif avg_speed_ms < 50.0:      # < 180 km/h
+    elif avg_speed_ms < 50.0:
         return "drive"
     else:
         return "unknown"
 
-
-# ---------------------------------------------------------------------------
-# CSV Loading
-# ---------------------------------------------------------------------------
 
 def load_csv(path: str) -> list[LocationSample]:
     """Load GPS samples from PlaceNotes CSV export."""
@@ -152,18 +124,9 @@ def load_csv(path: str) -> list[LocationSample]:
     return samples
 
 
-# ---------------------------------------------------------------------------
-# Stage 1: Temporal Gap Segmentation
-# ---------------------------------------------------------------------------
-
 def segment_by_time_gap(samples: list[LocationSample],
                         tau_gap_seconds: float = 600) -> list[list[LocationSample]]:
-    """
-    Split the trajectory into segments wherever the time gap between
-    consecutive points exceeds tau_gap_seconds.
-
-    Default tau_gap = 600s (10 minutes).
-    """
+    """Split the trajectory into segments by time gaps > tau_gap_seconds."""
     if not samples:
         return []
 
@@ -187,28 +150,19 @@ def segment_by_time_gap(samples: list[LocationSample],
     return segments
 
 
-# ---------------------------------------------------------------------------
-# Stage 2: Spatial DBSCAN within segments
-# ---------------------------------------------------------------------------
-
 def dbscan_spatial(samples: list[LocationSample],
                    eps_meters: float = 50,
                    min_pts: int = 3,
                    cluster_id_offset: int = 0) -> int:
-    """
-    Run DBSCAN on spatial coordinates within a single segment.
-    Assigns cluster_id to each sample in-place.
+    """Run DBSCAN on spatial coordinates within a single segment.
 
-    Returns the next available cluster_id (for offset tracking across segments).
-
-    This is a from-scratch implementation so the script has zero dependencies
-    beyond the Python standard library.
+    Assigns cluster_id to each sample in-place. Returns the next available
+    cluster_id (for offset tracking across segments). Zero external deps.
     """
     n = len(samples)
     if n == 0:
         return cluster_id_offset
 
-    # Pre-compute pairwise distances (fine for small n per segment)
     dist = [[0.0] * n for _ in range(n)]
     for i in range(n):
         for j in range(i + 1, n):
@@ -217,11 +171,10 @@ def dbscan_spatial(samples: list[LocationSample],
             dist[i][j] = d
             dist[j][i] = d
 
-    # Find neighbors
     def region_query(idx):
         return [j for j in range(n) if dist[idx][j] <= eps_meters]
 
-    labels = [-1] * n  # -1 = unvisited
+    labels = [-1] * n
     visited = [False] * n
     cluster = cluster_id_offset
 
@@ -232,9 +185,8 @@ def dbscan_spatial(samples: list[LocationSample],
         neighbors = region_query(i)
 
         if len(neighbors) < min_pts:
-            labels[i] = -1  # noise
+            labels[i] = -1
         else:
-            # Expand cluster
             labels[i] = cluster
             seed_set = list(neighbors)
             k = 0
@@ -257,12 +209,7 @@ def dbscan_spatial(samples: list[LocationSample],
     return cluster
 
 
-# ---------------------------------------------------------------------------
-# Stay Point and Trip extraction
-# ---------------------------------------------------------------------------
-
 def extract_stay_points(samples: list[LocationSample]) -> list[StayPoint]:
-    """Extract stay points from clustered samples."""
     clusters: dict[int, list[LocationSample]] = {}
     for s in samples:
         if s.cluster_id >= 0:
@@ -293,16 +240,20 @@ def extract_stay_points(samples: list[LocationSample]) -> list[StayPoint]:
 
 def extract_trips(samples: list[LocationSample],
                   stay_points: list[StayPoint]) -> list[Trip]:
-    """Extract trips between consecutive stay points."""
+    """Extract trips between consecutive stay points.
+
+    `samples` may contain rejected points (cluster_id == -1 by default); they
+    will be included in trip bodies alongside accepted-but-moving points.
+    """
     if len(stay_points) < 2:
         return []
 
+    samples = sorted(samples, key=lambda s: s.timestamp)
     trips = []
     for i in range(len(stay_points) - 1):
         origin = stay_points[i]
         dest = stay_points[i + 1]
 
-        # Find samples between departure of origin and arrival of destination
         trip_samples = [
             s for s in samples
             if origin.departure <= s.timestamp <= dest.arrival
@@ -313,7 +264,6 @@ def extract_trips(samples: list[LocationSample],
         distance = haversine(origin.center_lat, origin.center_lon,
                              dest.center_lat, dest.center_lon)
 
-        # Speed stats from trip samples
         valid_speeds = [s.speed for s in trip_samples if s.speed >= 0]
         avg_speed = sum(valid_speeds) / len(valid_speeds) if valid_speeds else -1
         max_speed = max(valid_speeds) if valid_speeds else -1
@@ -336,12 +286,7 @@ def extract_trips(samples: list[LocationSample],
     return trips
 
 
-# ---------------------------------------------------------------------------
-# Output
-# ---------------------------------------------------------------------------
-
-def print_summary(samples, segments, stay_points, trips):
-    """Print a human-readable summary of the pipeline results."""
+def print_summary(samples, segments, stay_points, trips) -> None:
     print("\n" + "=" * 60)
     print("ST-DBSCAN Pipeline Results")
     print("=" * 60)
@@ -371,8 +316,7 @@ def print_summary(samples, segments, stay_points, trips):
                   f"mode={t.transport_mode}")
 
 
-def write_annotated_csv(samples: list[LocationSample], output_path: str):
-    """Write the original CSV with added segment_id, cluster_id, and label columns."""
+def write_annotated_csv(samples: list[LocationSample], output_path: str) -> None:
     fieldnames = [
         "id", "latitude", "longitude", "timestamp",
         "horizontalAccuracy", "speed", "altitude", "verticalAccuracy",
@@ -399,11 +343,10 @@ def write_annotated_csv(samples: list[LocationSample], output_path: str):
                 "cluster_id": s.cluster_id,
                 "label": s.label,
             })
-    print(f"\nAnnotated CSV written to: {output_path}")
+    print(f"Annotated CSV: {output_path}")
 
 
-def write_trips_json(trips: list[Trip], output_path: str):
-    """Write trip summaries as JSON (useful for LLM annotation later)."""
+def write_trips_json(trips: list[Trip], output_path: str) -> None:
     data = []
     for t in trips:
         data.append({
@@ -422,57 +365,49 @@ def write_trips_json(trips: list[Trip], output_path: str):
 
     with open(output_path, "w") as f:
         json.dump(data, f, indent=2)
-    print(f"Trips JSON written to: {output_path}")
+    print(f"Trips JSON: {output_path}")
 
-
-# ---------------------------------------------------------------------------
-# Main pipeline
-# ---------------------------------------------------------------------------
 
 def run_pipeline(csv_path: str,
                  tau_gap: float = 600,
                  eps: float = 50,
                  min_pts: int = 3,
                  use_all: bool = False,
+                 use_rejected_for_trips: bool = False,
                  output_dir: str = ""):
-    """
-    Run the full two-stage ST-DBSCAN pipeline.
+    """Run the full two-stage ST-DBSCAN pipeline.
 
-    Args:
-        csv_path:   Path to PlaceNotes CSV export
-        tau_gap:    Stage 1 — time gap threshold in seconds (default 600 = 10 min)
-        eps:        Stage 2 — spatial distance threshold in meters (default 50)
-        min_pts:    Stage 2 — minimum points to form a cluster (default 3)
-        use_all:    If True, use all points; if False, only use accepted points
-        output_dir: Directory for output files (default: same as input)
+    Returns (samples, segments, stay_points, trips).
     """
-    # Load
     all_samples = load_csv(csv_path)
     print(f"Loaded {len(all_samples)} samples from {csv_path}")
 
-    # Filter
+    rejected_samples: list[LocationSample] = []
     if use_all:
         samples = all_samples
     else:
         samples = [s for s in all_samples if s.filter_status == "accepted"]
+        rejected_samples = [s for s in all_samples if s.filter_status != "accepted"]
         print(f"Using {len(samples)} accepted samples (filtered out "
-              f"{len(all_samples) - len(samples)} rejected)")
+              f"{len(rejected_samples)} rejected)")
 
-    # Stage 1: temporal segmentation
     segments = segment_by_time_gap(samples, tau_gap)
     print(f"Stage 1: {len(segments)} segments (tau_gap={tau_gap}s)")
 
-    # Stage 2: spatial DBSCAN per segment
     cluster_offset = 0
     for seg in segments:
         cluster_offset = dbscan_spatial(seg, eps, min_pts, cluster_offset)
     print(f"Stage 2: {cluster_offset} clusters found (eps={eps}m, min_pts={min_pts})")
 
-    # Extract stay points and trips
     stay_points = extract_stay_points(samples)
-    trips = extract_trips(samples, stay_points)
+    if use_rejected_for_trips and not use_all and rejected_samples:
+        trip_pool = samples + rejected_samples
+        print(f"Trip inference: folding in {len(rejected_samples)} rejected "
+              f"samples for speed/course stats")
+    else:
+        trip_pool = samples
+    trips = extract_trips(trip_pool, stay_points)
 
-    # Output
     print_summary(samples, segments, stay_points, trips)
 
     if not output_dir:
@@ -483,31 +418,3 @@ def run_pipeline(csv_path: str,
     write_trips_json(trips, os.path.join(output_dir, f"{base}_trips.json"))
 
     return samples, segments, stay_points, trips
-
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-def main():
-    parser = argparse.ArgumentParser(
-        description="Two-Stage ST-DBSCAN pipeline for trip detection")
-    parser.add_argument("csv", help="Path to PlaceNotes CSV export")
-    parser.add_argument("--tau_gap", type=float, default=600,
-                        help="Time gap threshold in seconds (default: 600)")
-    parser.add_argument("--eps", type=float, default=50,
-                        help="Spatial eps in meters (default: 50)")
-    parser.add_argument("--min_pts", type=int, default=3,
-                        help="Minimum points for a cluster (default: 3)")
-    parser.add_argument("--use_all", action="store_true",
-                        help="Use all points including rejected")
-    parser.add_argument("--output_dir", default="",
-                        help="Output directory (default: same as input)")
-    args = parser.parse_args()
-
-    run_pipeline(args.csv, args.tau_gap, args.eps, args.min_pts,
-                 args.use_all, args.output_dir)
-
-
-if __name__ == "__main__":
-    main()
