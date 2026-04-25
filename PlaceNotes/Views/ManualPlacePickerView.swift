@@ -1,6 +1,5 @@
 import SwiftUI
 import SwiftData
-import MapKit
 
 struct ManualPlacePickerView: View {
     @Environment(\.modelContext) private var context
@@ -11,7 +10,6 @@ struct ManualPlacePickerView: View {
     let onCancelled: () -> Void
 
     @State private var search = ""
-    @State private var droppedCoord: CLLocationCoordinate2D?
 
     var body: some View {
         NavigationStack {

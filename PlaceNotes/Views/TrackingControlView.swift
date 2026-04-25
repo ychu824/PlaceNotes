@@ -5,6 +5,7 @@ struct TrackingControlView: View {
     @EnvironmentObject var quickCapture: QuickCaptureViewModel
 
     @State private var showTrackingSheet = false
+    @State private var showCameraPermissionAlert = false
 
     var body: some View {
         NavigationStack {
@@ -104,7 +105,7 @@ struct TrackingControlView: View {
 
     private var isBusy: Bool {
         switch quickCapture.state {
-        case .idle, .done: return false
+        case .idle: return false
         default: return true
         }
     }
@@ -115,6 +116,8 @@ struct TrackingControlView: View {
             Task {
                 if await CameraPickerView.requestCameraPermission() {
                     quickCapture.beginCapture()
+                } else {
+                    showCameraPermissionAlert = true
                 }
             }
         } label: {
@@ -125,6 +128,11 @@ struct TrackingControlView: View {
         }
         .disabled(isBusy)
         .buttonStyle(.plain)
+        .alert("Camera access needed", isPresented: $showCameraPermissionAlert) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Enable Camera access in Settings → PlaceNotes to capture photos.")
+        }
     }
 
     @ViewBuilder
