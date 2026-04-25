@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import CoreLocation
 import AVFoundation
+import ImageIO
 
 struct CameraPickerView: UIViewControllerRepresentable {
     let onCaptured: (UIImage, CLLocation?) -> Void
@@ -28,9 +29,29 @@ struct CameraPickerView: UIViewControllerRepresentable {
                 parent.onCancelled()
                 return
             }
-            // UIImagePickerController does not expose CLLocation directly for camera source.
-            // Location will be resolved post-save via PHAsset.location.
-            parent.onCaptured(image, nil)
+            let exif = Self.extractGPSLocation(from: info[.mediaMetadata] as? [String: Any])
+            parent.onCaptured(image, exif)
+        }
+
+        private static func extractGPSLocation(from metadata: [String: Any]?) -> CLLocation? {
+            guard let gps = metadata?[kCGImagePropertyGPSDictionary as String] as? [String: Any],
+                  let lat = gps[kCGImagePropertyGPSLatitude as String] as? Double,
+                  let latRef = gps[kCGImagePropertyGPSLatitudeRef as String] as? String,
+                  let lon = gps[kCGImagePropertyGPSLongitude as String] as? Double,
+                  let lonRef = gps[kCGImagePropertyGPSLongitudeRef as String] as? String else {
+                return nil
+            }
+            let signedLat = latRef == "S" ? -lat : lat
+            let signedLon = lonRef == "W" ? -lon : lon
+            let altitude = (gps[kCGImagePropertyGPSAltitude as String] as? Double) ?? 0
+            let hAcc = (gps[kCGImagePropertyGPSHPositioningError as String] as? Double) ?? 10
+            return CLLocation(
+                coordinate: CLLocationCoordinate2D(latitude: signedLat, longitude: signedLon),
+                altitude: altitude,
+                horizontalAccuracy: hAcc,
+                verticalAccuracy: -1,
+                timestamp: Date()
+            )
         }
 
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {

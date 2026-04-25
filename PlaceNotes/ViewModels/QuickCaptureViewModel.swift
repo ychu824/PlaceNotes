@@ -162,11 +162,7 @@ final class QuickCaptureViewModel: ObservableObject {
             assetId = request.placeholderForCreatedAsset?.localIdentifier
         }
         guard let id = assetId else { throw QuickCaptureError.photoSaveFailed }
-
-        // PHAsset.location is populated by iOS when the camera captured the photo.
-        let fetch = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil)
-        let exif = fetch.firstObject?.location
-        return SavedPhoto(assetId: id, exifLocation: exif)
+        return SavedPhoto(assetId: id, exifLocation: nil)
     }
 
     private func ensureAddOnlyPhotosPermission() async throws {
