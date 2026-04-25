@@ -59,8 +59,9 @@ final class QuickCaptureViewModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let assetId = try await self.savePhotoToLibrary(image: image)
-                await self.continueAfterPhoto(photoAssetId: assetId, exifLocation: exifLocation)
+                let saved = try await self.savePhotoToLibrary(image: image)
+                let exif = exifLocation ?? saved.exifLocation
+                await self.continueAfterPhoto(photoAssetId: saved.assetId, exifLocation: exif)
             } catch {
                 logger.error("photo save failed: \(error.localizedDescription)")
                 await MainActor.run { self.state = .error("Couldn't save photo: \(error.localizedDescription)") }
@@ -143,7 +144,12 @@ final class QuickCaptureViewModel: ObservableObject {
         }
     }
 
-    private func savePhotoToLibrary(image: UIImage) async throws -> String {
+    private struct SavedPhoto {
+        let assetId: String
+        let exifLocation: CLLocation?
+    }
+
+    private func savePhotoToLibrary(image: UIImage) async throws -> SavedPhoto {
         try await ensureAddOnlyPhotosPermission()
         var assetId: String?
         try await PHPhotoLibrary.shared().performChanges {
@@ -151,7 +157,11 @@ final class QuickCaptureViewModel: ObservableObject {
             assetId = request.placeholderForCreatedAsset?.localIdentifier
         }
         guard let id = assetId else { throw QuickCaptureError.photoSaveFailed }
-        return id
+
+        // PHAsset.location is populated by iOS when the camera captured the photo.
+        let fetch = PHAsset.fetchAssets(withLocalIdentifiers: [id], options: nil)
+        let exif = fetch.firstObject?.location
+        return SavedPhoto(assetId: id, exifLocation: exif)
     }
 
     private func ensureAddOnlyPhotosPermission() async throws {
