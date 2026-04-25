@@ -31,6 +31,7 @@ final class QuickCaptureViewModel: ObservableObject {
 
     @Published private(set) var state: State = .idle
     @Published var showCamera: Bool = false
+    @Published private(set) var pendingPhotoAssetId: String?
 
     private let oneShot: LocationOneShotProviding
     private let context: ModelContext
@@ -71,6 +72,7 @@ final class QuickCaptureViewModel: ObservableObject {
 
     func cancelCapture() {
         pendingLiveFix = nil
+        pendingPhotoAssetId = nil
         showCamera = false
         state = .idle
     }
@@ -123,7 +125,10 @@ final class QuickCaptureViewModel: ObservableObject {
     private func continueAfterPhoto(photoAssetId: String, exifLocation: CLLocation?) async {
         let coord = QuickCaptureService.resolveCoordinate(liveFix: pendingLiveFix, exifLocation: exifLocation)
         guard let coord else {
-            await MainActor.run { self.state = .manualPickNeeded }
+            await MainActor.run {
+                self.pendingPhotoAssetId = photoAssetId
+                self.state = .manualPickNeeded
+            }
             return
         }
         await MainActor.run { self.state = .resolvingPlace }

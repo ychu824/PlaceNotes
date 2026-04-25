@@ -59,6 +59,7 @@ struct PlaceNotesApp: App {
                 .environmentObject(settings)
                 .environmentObject(locationManager)
                 .environmentObject(makeTrackingViewModel())
+                .environmentObject(makeQuickCaptureViewModel())
                 .onAppear {
                     NotificationManager.shared.requestAuthorization()
                     locationManager.configure(modelContext: modelContainer.mainContext)
@@ -88,6 +89,14 @@ struct PlaceNotesApp: App {
         }
 
         UserDefaults.standard.set(true, forKey: migrationKey)
+    }
+
+    @MainActor
+    private func makeQuickCaptureViewModel() -> QuickCaptureViewModel {
+        QuickCaptureViewModel(
+            oneShot: LocationOneShot(),
+            context: modelContainer.mainContext
+        )
     }
 
     @MainActor
