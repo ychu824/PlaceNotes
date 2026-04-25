@@ -6,7 +6,7 @@ import os
 
 private let logger = Logger(subsystem: "com.placenotes.app", category: "PlaceResolver")
 
-struct ResolvedPlace {
+private struct ResolvedPlace {
     let name: String
     let category: String?
     let city: String?
@@ -15,7 +15,7 @@ struct ResolvedPlace {
     var alternatives: [PlaceCandidate] = []
 }
 
-struct GeoDetails {
+private struct GeoDetails {
     let name: String
     let city: String?
     let state: String?
@@ -23,14 +23,16 @@ struct GeoDetails {
 
 enum PlaceResolver {
 
+    /// ~50 meters in degrees latitude/longitude. Used for nearest-existing-place matching.
+    private static let nearbyThresholdDegrees: Double = 0.0005
+
     /// Returns the nearest Place within ~50m of the given coordinate, if any exists.
     @MainActor
     static func nearestExisting(latitude: Double, longitude: Double, in context: ModelContext) -> Place? {
-        let threshold = 0.0005 // ~50m
-        let minLat = latitude - threshold
-        let maxLat = latitude + threshold
-        let minLon = longitude - threshold
-        let maxLon = longitude + threshold
+        let minLat = latitude - nearbyThresholdDegrees
+        let maxLat = latitude + nearbyThresholdDegrees
+        let minLon = longitude - nearbyThresholdDegrees
+        let maxLon = longitude + nearbyThresholdDegrees
         let descriptor = FetchDescriptor<Place>(
             predicate: #Predicate<Place> {
                 $0.latitude >= minLat && $0.latitude <= maxLat &&
@@ -52,8 +54,7 @@ enum PlaceResolver {
             logger.debug("Found existing place: \(existing.name)")
             return (existing, [])
         }
-        let threshold = 0.0005
-        logger.info("No existing place within \(threshold) degrees — resolving (addressOnly: \(addressOnly))")
+        logger.info("No existing place within \(nearbyThresholdDegrees) degrees — resolving (addressOnly: \(addressOnly))")
         let resolved = await resolve(latitude: latitude, longitude: longitude, addressOnly: addressOnly)
         let place = Place(
             name: resolved.name,
