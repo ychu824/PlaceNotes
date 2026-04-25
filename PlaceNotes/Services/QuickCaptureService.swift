@@ -11,8 +11,8 @@ enum QuickCaptureResult {
 }
 
 enum QuickCaptureError: Error {
-    case noLocation
-    case placeNotResolved
+    case photosPermissionDenied
+    case photoSaveFailed
 }
 
 enum QuickCaptureService {

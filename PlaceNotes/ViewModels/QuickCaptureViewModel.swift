@@ -150,7 +150,7 @@ final class QuickCaptureViewModel: ObservableObject {
             let request = PHAssetChangeRequest.creationRequestForAsset(from: image)
             assetId = request.placeholderForCreatedAsset?.localIdentifier
         }
-        guard let id = assetId else { throw QuickCaptureError.placeNotResolved }
+        guard let id = assetId else { throw QuickCaptureError.photoSaveFailed }
         return id
     }
 
@@ -162,12 +162,12 @@ final class QuickCaptureViewModel: ObservableObject {
         case .notDetermined:
             let newStatus = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
             guard newStatus == .authorized || newStatus == .limited else {
-                throw QuickCaptureError.noLocation
+                throw QuickCaptureError.photosPermissionDenied
             }
         case .denied, .restricted:
-            throw QuickCaptureError.noLocation
+            throw QuickCaptureError.photosPermissionDenied
         @unknown default:
-            throw QuickCaptureError.noLocation
+            throw QuickCaptureError.photosPermissionDenied
         }
     }
 }
