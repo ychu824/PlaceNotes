@@ -29,6 +29,10 @@ final class Visit {
     /// Median horizontal accuracy of samples collected during the stay (meters).
     var medianAccuracyMeters: Double?
 
+    /// True for visits created via the first-tab shutter button.
+    /// Quick captures are short by design and bypass the logbook's minStayMinutes filter.
+    var isQuickCapture: Bool = false
+
     var confidence: PlaceConfidence {
         get { PlaceConfidence(rawValue: confidenceRaw ?? "") ?? .medium }
         set { confidenceRaw = newValue.rawValue }

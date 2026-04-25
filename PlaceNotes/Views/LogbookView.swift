@@ -15,7 +15,7 @@ struct LogbookView: View {
         let minStay = settings.minStayMinutes
         let allVisits = places
             .flatMap { $0.visits }
-            .filter { $0.durationMinutes >= minStay }
+            .filter { $0.isQuickCapture || $0.durationMinutes >= minStay }
             .sorted { $0.arrivalDate > $1.arrivalDate }
 
         let calendar = Calendar.current

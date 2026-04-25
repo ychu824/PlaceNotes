@@ -2,7 +2,6 @@ import Foundation
 import CoreLocation
 import Combine
 import SwiftData
-import Photos
 import UIKit
 import os
 
@@ -59,14 +58,12 @@ final class QuickCaptureViewModel: ObservableObject {
         state = .savingPhoto
         Task { [weak self] in
             guard let self else { return }
-            do {
-                let saved = try await self.savePhotoToLibrary(image: image)
-                let exif = exifLocation ?? saved.exifLocation
-                await self.continueAfterPhoto(photoAssetId: saved.assetId, exifLocation: exif)
-            } catch {
-                logger.error("photo save failed: \(error.localizedDescription)")
-                await MainActor.run { self.state = .error("Couldn't save photo: \(error.localizedDescription)") }
+            guard let filename = PhotoStorage.saveImage(image) else {
+                logger.error("PhotoStorage.saveImage returned nil")
+                await MainActor.run { self.state = .error("Couldn't save photo to disk.") }
+                return
             }
+            await self.continueAfterPhoto(photoAssetId: filename, exifLocation: exifLocation)
         }
     }
 
@@ -149,36 +146,4 @@ final class QuickCaptureViewModel: ObservableObject {
         }
     }
 
-    private struct SavedPhoto {
-        let assetId: String
-        let exifLocation: CLLocation?
-    }
-
-    private func savePhotoToLibrary(image: UIImage) async throws -> SavedPhoto {
-        try await ensureAddOnlyPhotosPermission()
-        var assetId: String?
-        try await PHPhotoLibrary.shared().performChanges {
-            let request = PHAssetChangeRequest.creationRequestForAsset(from: image)
-            assetId = request.placeholderForCreatedAsset?.localIdentifier
-        }
-        guard let id = assetId else { throw QuickCaptureError.photoSaveFailed }
-        return SavedPhoto(assetId: id, exifLocation: nil)
-    }
-
-    private func ensureAddOnlyPhotosPermission() async throws {
-        let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
-        switch status {
-        case .authorized, .limited:
-            return
-        case .notDetermined:
-            let newStatus = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
-            guard newStatus == .authorized || newStatus == .limited else {
-                throw QuickCaptureError.photosPermissionDenied
-            }
-        case .denied, .restricted:
-            throw QuickCaptureError.photosPermissionDenied
-        @unknown default:
-            throw QuickCaptureError.photosPermissionDenied
-        }
-    }
 }

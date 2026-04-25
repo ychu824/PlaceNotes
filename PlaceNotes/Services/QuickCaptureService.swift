@@ -11,7 +11,6 @@ enum QuickCaptureResult {
 }
 
 enum QuickCaptureError: Error {
-    case photosPermissionDenied
     case photoSaveFailed
 }
 
@@ -94,6 +93,7 @@ extension QuickCaptureService {
                 place: place
             )
             visit.confidence = .high
+            visit.isQuickCapture = true
             context.insert(visit)
             try? context.save()
             return .newVisit(visitID: visit.id, placeName: place.displayName, journalEntryID: entry.id)
