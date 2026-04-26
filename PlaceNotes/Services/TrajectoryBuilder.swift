@@ -90,4 +90,31 @@ enum TrajectoryBuilder {
 
         return zip(points, keep).compactMap { $0.1 ? $0.0 : nil }
     }
+
+    static func computeStats(
+        segments: [TrajectorySegment],
+        placeCount: Int
+    ) -> TrajectoryStats {
+        var totalDistance: Double = 0
+        var totalSamples = 0
+
+        for segment in segments {
+            totalSamples += segment.points.count
+            guard segment.points.count > 1 else { continue }
+            for i in 1..<segment.points.count {
+                let a = segment.points[i - 1].coordinate
+                let b = segment.points[i].coordinate
+                let aLoc = CLLocation(latitude: a.latitude, longitude: a.longitude)
+                let bLoc = CLLocation(latitude: b.latitude, longitude: b.longitude)
+                totalDistance += aLoc.distance(from: bLoc)
+            }
+        }
+
+        return TrajectoryStats(
+            totalDistanceMeters: totalDistance,
+            sampleCount: totalSamples,
+            segmentCount: segments.count,
+            placeCount: placeCount
+        )
+    }
 }
