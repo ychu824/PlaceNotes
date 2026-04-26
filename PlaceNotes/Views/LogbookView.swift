@@ -367,6 +367,16 @@ private struct LogbookVisitRow: View {
         return "\(mins)m"
     }
 
+    private var hasPhoto: Bool {
+        let start = visit.arrivalDate.addingTimeInterval(-5 * 60)
+        let end = (visit.departureDate ?? visit.arrivalDate).addingTimeInterval(5 * 60)
+        return place.journalEntries.contains { entry in
+            !entry.photoAssetIdentifiers.isEmpty &&
+            entry.date >= start &&
+            entry.date <= end
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 12) {
@@ -382,8 +392,15 @@ private struct LogbookVisitRow: View {
                 }
 
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(place.displayName)
-                        .font(.body.weight(.medium))
+                    HStack(spacing: 6) {
+                        Text(place.displayName)
+                            .font(.body.weight(.medium))
+                        if hasPhoto {
+                            Image(systemName: "camera.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
 
                     HStack(spacing: 8) {
                         if let category = place.category, !category.isEmpty {
