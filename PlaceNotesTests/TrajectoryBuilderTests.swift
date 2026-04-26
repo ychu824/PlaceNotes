@@ -183,5 +183,6 @@ final class TrajectoryBuilderTests: XCTestCase {
         XCTAssertEqual(stats.totalDistanceMeters, 0)
         XCTAssertEqual(stats.sampleCount, 1)
         XCTAssertEqual(stats.segmentCount, 1)
+        XCTAssertEqual(stats.placeCount, 0)
     }
 }
