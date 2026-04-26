@@ -54,3 +54,6 @@ Pods/
 
 # Claude Code
 .claude/
+
+# Python cache
+__pycache__/
