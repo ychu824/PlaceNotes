@@ -112,6 +112,7 @@ final class QuickCaptureViewModel: ObservableObject {
             place: place
         )
         visit.confidence = .high
+        visit.isQuickCapture = true
         context.insert(visit)
         try? context.save()
         state = .idle
