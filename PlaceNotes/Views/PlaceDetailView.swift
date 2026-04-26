@@ -198,15 +198,25 @@ struct PlaceDetailView: View {
 // MARK: - Journal Entry Card
 
 struct JournalEntryCard: View {
+    @Environment(\.modelContext) private var modelContext
     let entry: JournalEntry
     var onEdit: () -> Void
     var onDelete: () -> Void
+
+    @State private var pendingPhotoDelete: String?
+    @State private var showPhotoDeleteAlert = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Photos
             if !entry.photoAssetIdentifiers.isEmpty {
-                PhotoGridView(photoFilenames: entry.photoAssetIdentifiers)
+                PhotoGridView(
+                    photoFilenames: entry.photoAssetIdentifiers,
+                    onContextDelete: { filename in
+                        pendingPhotoDelete = filename
+                        showPhotoDeleteAlert = true
+                    }
+                )
             }
 
             // Title
@@ -252,5 +262,20 @@ struct JournalEntryCard: View {
         .padding()
         .background(Color(.systemGray6))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .alert("Delete this photo?", isPresented: $showPhotoDeleteAlert) {
+            Button("Delete", role: .destructive) {
+                if let filename = pendingPhotoDelete {
+                    entry.photoAssetIdentifiers.removeAll { $0 == filename }
+                    PhotoStorage.deleteImage(filename: filename)
+                    try? modelContext.save()
+                    pendingPhotoDelete = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingPhotoDelete = nil
+            }
+        } message: {
+            Text("This photo will be permanently removed from this entry.")
+        }
     }
 }

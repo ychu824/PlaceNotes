@@ -3,6 +3,7 @@ import SwiftUI
 struct PhotoGridView: View {
     let photoFilenames: [String]
     var onRemove: ((String) -> Void)?
+    var onContextDelete: ((String) -> Void)?
 
     private let columns = [
         GridItem(.flexible(), spacing: 4),
@@ -15,25 +16,42 @@ struct PhotoGridView: View {
         } else {
             LazyVGrid(columns: columns, spacing: 4) {
                 ForEach(photoFilenames, id: \.self) { filename in
-                    PhotoThumbnailView(filename: filename)
-                        .aspectRatio(1, contentMode: .fit)
-                        .clipped()
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(alignment: .topTrailing) {
-                            if let onRemove {
-                                Button {
-                                    onRemove(filename)
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.title3)
-                                        .symbolRenderingMode(.palette)
-                                        .foregroundStyle(.white, .black.opacity(0.5))
-                                }
-                                .padding(6)
-                            }
-                        }
+                    thumbnail(for: filename)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func thumbnail(for filename: String) -> some View {
+        let view = PhotoThumbnailView(filename: filename)
+            .aspectRatio(1, contentMode: .fit)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(alignment: .topTrailing) {
+                if let onRemove {
+                    Button {
+                        onRemove(filename)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .black.opacity(0.5))
+                    }
+                    .padding(6)
+                }
+            }
+
+        if let onContextDelete {
+            view.contextMenu {
+                Button(role: .destructive) {
+                    onContextDelete(filename)
+                } label: {
+                    Label("Delete Photo", systemImage: "trash")
+                }
+            }
+        } else {
+            view
         }
     }
 }
