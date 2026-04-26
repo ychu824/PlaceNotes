@@ -185,4 +185,77 @@ final class TrajectoryBuilderTests: XCTestCase {
         XCTAssertEqual(stats.segmentCount, 1)
         XCTAssertEqual(stats.placeCount, 0)
     }
+
+    // MARK: - build
+
+    private func startOfDay(year: Int, month: Int, day: Int) -> Date {
+        var comps = DateComponents()
+        comps.year = year; comps.month = month; comps.day = day
+        comps.hour = 0; comps.minute = 0; comps.second = 0
+        return Calendar.current.date(from: comps)!
+    }
+
+    func testBuildEmptyReturnsEmpty() {
+        let day = startOfDay(year: 2026, month: 4, day: 18)
+        let result = TrajectoryBuilder.build(samples: [], day: day)
+        XCTAssertTrue(result.isEmpty)
+    }
+
+    func testBuildAssignsNormalizedTimeOfDay() {
+        let day = startOfDay(year: 2026, month: 4, day: 18)
+        // 06:00 → 0.25, 12:00 → 0.5, 18:00 → 0.75
+        let samples = [
+            sample(offsetSeconds: 6 * 3600, from: day, lat: 37.78, lon: -122.41),
+            sample(offsetSeconds: 12 * 3600, from: day, lat: 37.79, lon: -122.42),
+            sample(offsetSeconds: 18 * 3600, from: day, lat: 37.80, lon: -122.43)
+        ]
+        let result = TrajectoryBuilder.build(samples: samples, day: day)
+        // The 12h gap > 600s default → 3 segments of 1 point each → all dropped
+        // (single-point segments are suppressed). Use a larger gap window to keep them:
+        let allKept = TrajectoryBuilder.build(
+            samples: samples,
+            day: day,
+            epsilonMeters: 0,
+            maxGapSeconds: 24 * 3600
+        )
+        XCTAssertEqual(allKept.count, 1)
+        XCTAssertEqual(allKept[0].points.count, 3)
+        XCTAssertEqual(allKept[0].points[0].normalizedTimeOfDay, 0.25, accuracy: 0.001)
+        XCTAssertEqual(allKept[0].points[1].normalizedTimeOfDay, 0.5, accuracy: 0.001)
+        XCTAssertEqual(allKept[0].points[2].normalizedTimeOfDay, 0.75, accuracy: 0.001)
+
+        // Default (600s gap) splits at every gap → all single-point segments → dropped.
+        XCTAssertTrue(result.isEmpty)
+    }
+
+    func testBuildDropsSegmentsWithFewerThanTwoPoints() {
+        let day = startOfDay(year: 2026, month: 4, day: 18)
+        // Two close samples + one isolated sample → segment 1 keeps 2 pts, segment 2 drops.
+        let samples = [
+            sample(offsetSeconds: 6 * 3600, from: day),
+            sample(offsetSeconds: 6 * 3600 + 60, from: day),
+            sample(offsetSeconds: 18 * 3600, from: day)  // 12h gap
+        ]
+        let result = TrajectoryBuilder.build(samples: samples, day: day)
+        XCTAssertEqual(result.count, 1)
+        XCTAssertEqual(result[0].points.count, 2)
+    }
+
+    func testBuildClampsNormalizedTimeOfDayToZeroOne() {
+        // A sample whose timestamp is just before midnight of `day` (e.g., feature
+        // pulls in samples that nominally landed in another day due to TZ rounding)
+        // should not produce a negative normalizedTimeOfDay.
+        let day = startOfDay(year: 2026, month: 4, day: 18)
+        let earlier = sample(offsetSeconds: -10, from: day, lat: 37.78)
+        let later = sample(offsetSeconds: 10, from: day, lat: 37.78)
+        let result = TrajectoryBuilder.build(
+            samples: [earlier, later],
+            day: day,
+            epsilonMeters: 0,
+            maxGapSeconds: 600
+        )
+        XCTAssertEqual(result.count, 1)
+        XCTAssertGreaterThanOrEqual(result[0].points[0].normalizedTimeOfDay, 0)
+        XCTAssertLessThanOrEqual(result[0].points[1].normalizedTimeOfDay, 1)
+    }
 }

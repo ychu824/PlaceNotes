@@ -117,4 +117,38 @@ enum TrajectoryBuilder {
             placeCount: placeCount
         )
     }
+
+    static func build(
+        samples: [RawLocationSample],
+        day: Date,
+        epsilonMeters: Double = 5,
+        maxGapSeconds: TimeInterval = 600
+    ) -> [TrajectorySegment] {
+        let dayStart = Calendar.current.startOfDay(for: day)
+        let raw = splitIntoSegments(samples, maxGapSeconds: maxGapSeconds)
+
+        return raw.compactMap { rawSegment in
+            let points = convertToPoints(rawSegment, dayStart: dayStart)
+            let simplified = simplify(points, epsilonMeters: epsilonMeters)
+            guard simplified.count >= 2 else { return nil }
+            return TrajectorySegment(points: simplified)
+        }
+    }
+
+    static func convertToPoints(
+        _ samples: [RawLocationSample],
+        dayStart: Date
+    ) -> [TrajectoryPoint] {
+        let dayLength: TimeInterval = 86_400
+        return samples.map { s in
+            let raw = s.timestamp.timeIntervalSince(dayStart) / dayLength
+            let normalized = min(1.0, max(0.0, raw))
+            return TrajectoryPoint(
+                coordinate: CLLocationCoordinate2D(latitude: s.latitude, longitude: s.longitude),
+                timestamp: s.timestamp,
+                normalizedTimeOfDay: normalized,
+                speedMetersPerSecond: max(0, s.speed)
+            )
+        }
+    }
 }
