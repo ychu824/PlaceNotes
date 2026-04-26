@@ -38,7 +38,7 @@ enum TrajectoryBuilder {
     ) -> [TrajectoryPoint] {
         guard points.count > 2 else { return points }
 
-        let midLat = (points.first!.coordinate.latitude + points.last!.coordinate.latitude) / 2
+        let midLat = (points[0].coordinate.latitude + points[points.count - 1].coordinate.latitude) / 2
         let metersPerDegLat = 111_320.0
         let metersPerDegLon = 111_320.0 * cos(midLat * .pi / 180)
 
