@@ -27,4 +27,67 @@ enum TrajectoryBuilder {
         result.append(current)
         return result
     }
+
+    /// Douglas–Peucker line simplification. Drops points whose perpendicular
+    /// distance from the local approximation line is < `epsilonMeters`.
+    /// Uses an equirectangular projection around the input's midpoint — good
+    /// enough at the few-km scale a single day's path occupies.
+    static func simplify(
+        _ points: [TrajectoryPoint],
+        epsilonMeters: Double
+    ) -> [TrajectoryPoint] {
+        guard points.count > 2 else { return points }
+
+        let midLat = (points.first!.coordinate.latitude + points.last!.coordinate.latitude) / 2
+        let metersPerDegLat = 111_320.0
+        let metersPerDegLon = 111_320.0 * cos(midLat * .pi / 180)
+
+        func project(_ c: CLLocationCoordinate2D) -> (x: Double, y: Double) {
+            (x: c.longitude * metersPerDegLon, y: c.latitude * metersPerDegLat)
+        }
+
+        func perpendicularDistance(
+            _ p: CLLocationCoordinate2D,
+            from a: CLLocationCoordinate2D,
+            to b: CLLocationCoordinate2D
+        ) -> Double {
+            let pp = project(p), pa = project(a), pb = project(b)
+            let dx = pb.x - pa.x
+            let dy = pb.y - pa.y
+            let lengthSq = dx * dx + dy * dy
+            if lengthSq == 0 {
+                let ex = pp.x - pa.x, ey = pp.y - pa.y
+                return (ex * ex + ey * ey).squareRoot()
+            }
+            let cross = abs((pp.x - pa.x) * dy - (pp.y - pa.y) * dx)
+            return cross / lengthSq.squareRoot()
+        }
+
+        func recurse(start: Int, end: Int, into keep: inout [Bool]) {
+            guard end > start + 1 else { return }
+            var maxDist = 0.0
+            var maxIdx = start
+            let a = points[start].coordinate
+            let b = points[end].coordinate
+            for i in (start + 1)..<end {
+                let d = perpendicularDistance(points[i].coordinate, from: a, to: b)
+                if d > maxDist {
+                    maxDist = d
+                    maxIdx = i
+                }
+            }
+            if maxDist > epsilonMeters {
+                keep[maxIdx] = true
+                recurse(start: start, end: maxIdx, into: &keep)
+                recurse(start: maxIdx, end: end, into: &keep)
+            }
+        }
+
+        var keep = [Bool](repeating: false, count: points.count)
+        keep[0] = true
+        keep[points.count - 1] = true
+        recurse(start: 0, end: points.count - 1, into: &keep)
+
+        return zip(points, keep).compactMap { $0.1 ? $0.0 : nil }
+    }
 }

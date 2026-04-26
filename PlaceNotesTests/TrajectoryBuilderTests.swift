@@ -86,4 +86,56 @@ final class TrajectoryBuilderTests: XCTestCase {
         XCTAssertEqual(segments[1].count, 1)
         XCTAssertEqual(segments[2].count, 2)
     }
+
+    // MARK: - simplify (Douglas–Peucker)
+
+    private func point(lat: Double, lon: Double) -> TrajectoryPoint {
+        TrajectoryPoint(
+            coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000),
+            normalizedTimeOfDay: 0.5,
+            speedMetersPerSecond: 1.0
+        )
+    }
+
+    func testSimplifyEmptyReturnsEmpty() {
+        let result = TrajectoryBuilder.simplify([], epsilonMeters: 5)
+        XCTAssertTrue(result.isEmpty)
+    }
+
+    func testSimplifyTwoPointsReturnedUnchanged() {
+        let pts = [point(lat: 37.78, lon: -122.41), point(lat: 37.79, lon: -122.42)]
+        let result = TrajectoryBuilder.simplify(pts, epsilonMeters: 5)
+        XCTAssertEqual(result.count, 2)
+    }
+
+    func testSimplifyColinearMiddleIsRemoved() {
+        let pts = [
+            point(lat: 37.7800, lon: -122.4100),
+            point(lat: 37.7850, lon: -122.4100),
+            point(lat: 37.7900, lon: -122.4100)
+        ]
+        let result = TrajectoryBuilder.simplify(pts, epsilonMeters: 5)
+        XCTAssertEqual(result.count, 2)
+        XCTAssertEqual(result.first?.coordinate.latitude ?? 0, 37.7800, accuracy: 1e-6)
+        XCTAssertEqual(result.last?.coordinate.latitude ?? 0, 37.7900, accuracy: 1e-6)
+    }
+
+    func testSimplifySharpCornerIsKept() {
+        let pts = [
+            point(lat: 37.7800, lon: -122.4100),
+            point(lat: 37.7800, lon: -122.4000),
+            point(lat: 37.7900, lon: -122.4000)
+        ]
+        let result = TrajectoryBuilder.simplify(pts, epsilonMeters: 50)
+        XCTAssertEqual(result.count, 3)
+    }
+
+    func testSimplifyDenseColinearCollapses() {
+        let pts = (0..<10).map { i in
+            point(lat: 37.78 + Double(i) * 0.0005, lon: -122.41)
+        }
+        let result = TrajectoryBuilder.simplify(pts, epsilonMeters: 5)
+        XCTAssertEqual(result.count, 2)
+    }
 }
