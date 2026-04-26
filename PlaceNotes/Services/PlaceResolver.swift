@@ -26,6 +26,25 @@ enum PlaceResolver {
     /// ~50 meters in degrees latitude/longitude. Used for nearest-existing-place matching.
     private static let nearbyThresholdDegrees: Double = 0.0005
 
+    /// Network calls to CLGeocoder / MKLocalSearch are rate-limited by Apple and have no
+    /// client-side timeout. On flaky networks they can stall for minutes — bound them.
+    private static let networkTimeoutSeconds: TimeInterval = 8
+
+    private static func timed<T: Sendable>(
+        _ seconds: TimeInterval,
+        _ work: @escaping @Sendable () async -> T?
+    ) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask { await work() }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+                return nil
+            }
+            defer { group.cancelAll() }
+            return await group.next() ?? nil
+        }
+    }
+
     /// Returns the nearest Place within ~50m of the given coordinate, if any exists.
     @MainActor
     static func nearestExisting(latitude: Double, longitude: Double, in context: ModelContext) -> Place? {
@@ -89,91 +108,94 @@ enum PlaceResolver {
         let targetLocation = CLLocation(latitude: latitude, longitude: longitude)
         let searchRadius: CLLocationDistance = 150
 
-        let request = MKLocalPointsOfInterestRequest(center: coordinate, radius: searchRadius)
-        request.pointOfInterestFilter = .includingAll
-        let search = MKLocalSearch(request: request)
+        let response: MKLocalSearch.Response? = await timed(networkTimeoutSeconds) {
+            let request = MKLocalPointsOfInterestRequest(center: coordinate, radius: searchRadius)
+            request.pointOfInterestFilter = .includingAll
+            let search = MKLocalSearch(request: request)
+            return try? await search.start()
+        }
 
-        do {
-            let response = try await search.start()
-            let candidates = response.mapItems
-                .compactMap { item -> (item: MKMapItem, distance: CLLocationDistance, name: String)? in
-                    guard let name = item.name, !name.isEmpty,
-                          let itemLocation = item.placemark.location else { return nil }
-                    let dist = itemLocation.distance(from: targetLocation)
-                    guard dist <= searchRadius else { return nil }
-                    return (item, dist, name)
+        guard let response else {
+            logger.warning("MKLocalSearch timed out or failed at (\(latitude), \(longitude))")
+            return nil
+        }
+
+        let candidates = response.mapItems
+            .compactMap { item -> (item: MKMapItem, distance: CLLocationDistance, name: String)? in
+                guard let name = item.name, !name.isEmpty,
+                      let itemLocation = item.placemark.location else { return nil }
+                let dist = itemLocation.distance(from: targetLocation)
+                guard dist <= searchRadius else { return nil }
+                return (item, dist, name)
+            }
+            .sorted { $0.distance < $1.distance }
+
+        if let best = candidates.first {
+            let category: String? = {
+                if let poiCategory = best.item.pointOfInterestCategory,
+                   let match = PlaceCategorizer.categoryMap.first(where: { $0.category == poiCategory }) {
+                    return match.label
                 }
-                .sorted { $0.distance < $1.distance }
+                return nil
+            }()
 
-            if let best = candidates.first {
-                let category: String? = {
-                    if let poiCategory = best.item.pointOfInterestCategory,
-                       let match = PlaceCategorizer.categoryMap.first(where: { $0.category == poiCategory }) {
+            logger.info("MapKit POI found: \(best.name) (\(Int(best.distance))m away, category: \(category ?? "none"))")
+
+            let altGeoInfo: GeoDetails
+            if let geoInfo {
+                altGeoInfo = geoInfo
+            } else {
+                altGeoInfo = await reverseGeocodeDetails(latitude: latitude, longitude: longitude)
+            }
+            let alternatives: [PlaceCandidate] = Array(candidates.dropFirst().prefix(2)).map { candidate in
+                let altCategory: String? = {
+                    if let poiCat = candidate.item.pointOfInterestCategory,
+                       let match = PlaceCategorizer.categoryMap.first(where: { $0.category == poiCat }) {
                         return match.label
                     }
                     return nil
                 }()
-
-                logger.info("MapKit POI found: \(best.name) (\(Int(best.distance))m away, category: \(category ?? "none"))")
-
-                let altGeoInfo: GeoDetails
-                if let geoInfo {
-                    altGeoInfo = geoInfo
-                } else {
-                    altGeoInfo = await reverseGeocodeDetails(latitude: latitude, longitude: longitude)
-                }
-                let alternatives: [PlaceCandidate] = Array(candidates.dropFirst().prefix(2)).map { candidate in
-                    let altCategory: String? = {
-                        if let poiCat = candidate.item.pointOfInterestCategory,
-                           let match = PlaceCategorizer.categoryMap.first(where: { $0.category == poiCat }) {
-                            return match.label
-                        }
-                        return nil
-                    }()
-                    return PlaceCandidate(
-                        name: candidate.name,
-                        latitude: candidate.item.placemark.coordinate.latitude,
-                        longitude: candidate.item.placemark.coordinate.longitude,
-                        category: altCategory,
-                        city: altGeoInfo.city,
-                        state: altGeoInfo.state,
-                        distanceMeters: candidate.distance
-                    )
-                }
-
-                if !alternatives.isEmpty {
-                    logger.info("  alternatives: \(alternatives.map { "\($0.name) (\(Int($0.distanceMeters))m)" })")
-                }
-
-                return ResolvedPlace(name: best.name, category: category, city: nil, state: nil, source: "mapkit", alternatives: alternatives)
+                return PlaceCandidate(
+                    name: candidate.name,
+                    latitude: candidate.item.placemark.coordinate.latitude,
+                    longitude: candidate.item.placemark.coordinate.longitude,
+                    category: altCategory,
+                    city: altGeoInfo.city,
+                    state: altGeoInfo.state,
+                    distanceMeters: candidate.distance
+                )
             }
 
-            logger.debug("No MapKit POI within \(Int(searchRadius))m of (\(latitude), \(longitude))")
-        } catch {
-            logger.warning("MKLocalSearch failed: \(error.localizedDescription)")
+            if !alternatives.isEmpty {
+                logger.info("  alternatives: \(alternatives.map { "\($0.name) (\(Int($0.distanceMeters))m)" })")
+            }
+
+            return ResolvedPlace(name: best.name, category: category, city: nil, state: nil, source: "mapkit", alternatives: alternatives)
         }
 
+        logger.debug("No MapKit POI within \(Int(searchRadius))m of (\(latitude), \(longitude))")
         return nil
     }
 
     private static func reverseGeocodeDetails(latitude: Double, longitude: Double) async -> GeoDetails {
-        let geocoder = CLGeocoder()
-        let location = CLLocation(latitude: latitude, longitude: longitude)
-        do {
-            let placemarks = try await geocoder.reverseGeocodeLocation(location)
-            if let placemark = placemarks.first {
-                let name = placemark.name
-                    ?? placemark.thoroughfare
-                    ?? placemark.subLocality
-                    ?? placemark.locality
-                    ?? "Unknown Place"
-                let city = placemark.locality
-                let state = placemark.administrativeArea
-                logger.debug("Reverse geocoded (\(latitude), \(longitude)) -> \(name), city: \(city ?? "nil"), state: \(state ?? "nil")")
-                return GeoDetails(name: name, city: city, state: state)
-            }
-        } catch {
-            logger.error("Geocoding failed: \(error.localizedDescription)")
+        let placemarks: [CLPlacemark]? = await timed(networkTimeoutSeconds) {
+            let geocoder = CLGeocoder()
+            let location = CLLocation(latitude: latitude, longitude: longitude)
+            return try? await geocoder.reverseGeocodeLocation(location)
+        }
+        if let placemark = placemarks?.first {
+            let name = placemark.name
+                ?? placemark.thoroughfare
+                ?? placemark.subLocality
+                ?? placemark.locality
+                ?? "Unknown Place"
+            let city = placemark.locality
+            let state = placemark.administrativeArea
+            logger.debug("Reverse geocoded (\(latitude), \(longitude)) -> \(name), city: \(city ?? "nil"), state: \(state ?? "nil")")
+            return GeoDetails(name: name, city: city, state: state)
+        }
+        if placemarks == nil {
+            logger.warning("Reverse geocoding timed out or failed (\(latitude), \(longitude))")
         }
         return GeoDetails(name: "Unknown Place", city: nil, state: nil)
     }
