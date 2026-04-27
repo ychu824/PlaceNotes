@@ -32,6 +32,16 @@ final class QuickCaptureViewModel: ObservableObject {
     @Published var showCamera: Bool = false
     @Published private(set) var pendingPhotoAssetId: String?
 
+    /// True while photo save or place resolution is running. Used to show a
+    /// persistent banner so the user sees something is in flight after they
+    /// switch tabs away from the camera screen.
+    var isWorkingInBackground: Bool {
+        switch state {
+        case .savingPhoto, .resolvingPlace: return true
+        default: return false
+        }
+    }
+
     private let oneShot: LocationOneShotProviding
     private let context: ModelContext
     private var pendingLiveFix: CLLocation?
