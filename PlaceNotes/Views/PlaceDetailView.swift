@@ -59,7 +59,7 @@ struct PlaceDetailView: View {
         .alert("Delete Entry?", isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) {
                 if let entry = entryToDelete {
-                    modelContext.delete(entry)
+                    JournalEntryDeletion.delete(entry, in: modelContext)
                     try? modelContext.save()
                     entryToDelete = nil
                 }

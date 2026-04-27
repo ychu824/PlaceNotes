@@ -88,12 +88,12 @@ final class QuickCaptureViewModel: ObservableObject {
     }
 
     func undoNewVisit(_ payload: ToastPayload) {
-        let journalEntryID = payload.journalEntryID
         let visitID = payload.visitID
-        let entryDesc = FetchDescriptor<JournalEntry>(predicate: #Predicate { $0.id == journalEntryID })
         let visitDesc = FetchDescriptor<Visit>(predicate: #Predicate { $0.id == visitID })
-        if let entry = (try? context.fetch(entryDesc))?.first { context.delete(entry) }
-        if let visit = (try? context.fetch(visitDesc))?.first { context.delete(visit) }
+        if let visit = (try? context.fetch(visitDesc))?.first {
+            JournalEntryDeletion.cleanupPhotos(for: visit)
+            context.delete(visit)
+        }
         try? context.save()
         state = .idle
     }
@@ -114,6 +114,7 @@ final class QuickCaptureViewModel: ObservableObject {
         visit.confidence = .high
         visit.isQuickCapture = true
         context.insert(visit)
+        entry.visit = visit
         try? context.save()
         state = .idle
     }

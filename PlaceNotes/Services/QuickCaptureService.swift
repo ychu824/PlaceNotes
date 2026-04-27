@@ -83,6 +83,7 @@ extension QuickCaptureService {
 
         switch mergeDecision(for: place, now: now) {
         case .mergeWith(let visitID):
+            entry.visit = place.visits.first { $0.id == visitID }
             try? context.save()
             return .merged(intoVisitID: visitID, placeName: place.displayName, journalEntryID: entry.id)
 
@@ -95,6 +96,7 @@ extension QuickCaptureService {
             visit.confidence = .high
             visit.isQuickCapture = true
             context.insert(visit)
+            entry.visit = visit
             try? context.save()
             return .newVisit(visitID: visit.id, placeName: place.displayName, journalEntryID: entry.id)
         }

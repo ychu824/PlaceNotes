@@ -94,6 +94,7 @@ struct LogbookView: View {
                            let index = place.visits.firstIndex(where: { $0.id == visit.id }) {
                             place.visits.remove(at: index)
                         }
+                        JournalEntryDeletion.cleanupPhotos(for: visit)
                         modelContext.delete(visit)
                         try? modelContext.save()
                         visitToDelete = nil

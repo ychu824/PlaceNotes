@@ -407,6 +407,7 @@ struct PlaceDetailSheet: View {
         }
         .alert("Delete Place?", isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) {
+                JournalEntryDeletion.cleanupPhotos(for: place)
                 for visit in place.visits {
                     modelContext.delete(visit)
                 }

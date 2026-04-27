@@ -33,6 +33,11 @@ final class Visit {
     /// Quick captures are short by design and bypass the logbook's minStayMinutes filter.
     var isQuickCapture: Bool = false
 
+    /// Journal entries explicitly tied to this visit. Quick-capture creates one;
+    /// dwell-recorded visits start empty. Cascade-deletes when the visit is removed.
+    @Relationship(deleteRule: .cascade, inverse: \JournalEntry.visit)
+    var journalEntries: [JournalEntry] = []
+
     var confidence: PlaceConfidence {
         get { PlaceConfidence(rawValue: confidenceRaw ?? "") ?? .medium }
         set { confidenceRaw = newValue.rawValue }

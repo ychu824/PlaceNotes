@@ -9,6 +9,7 @@ final class JournalEntry {
     var date: Date
     var photoAssetIdentifiers: [String]
     var place: Place?
+    var visit: Visit?
 
     init(title: String = "", body: String = "", date: Date = Date(), photoAssetIdentifiers: [String] = []) {
         self.id = UUID()

@@ -115,4 +115,11 @@ enum PhotoStorage {
         let url = photosDirectory.appendingPathComponent(filename)
         try? FileManager.default.removeItem(at: url)
     }
+
+    /// Removes the entire JournalPhotos directory. Used by Settings → Clear All Data
+    /// since SwiftData cascade-deletes the entries but can't reach the disk.
+    static func deleteAll() {
+        let dir = photosDirectory
+        try? FileManager.default.removeItem(at: dir)
+    }
 }

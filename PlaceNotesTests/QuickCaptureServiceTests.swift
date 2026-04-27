@@ -143,6 +143,30 @@ final class QuickCaptureServiceTests: XCTestCase {
         XCTAssertEqual(entries.first?.id, journalEntryID)
         XCTAssertEqual(entries.first?.photoAssetIdentifiers, ["asset-123"])
         XCTAssertEqual(entries.first?.place?.id, place.id)
+        XCTAssertEqual(entries.first?.visit?.id, visitID)
+    }
+
+    func testDeletingVisitCascadeDeletesLinkedJournalEntry() async throws {
+        let ctx = try makeContext()
+        let place = Place(name: "Test Place", latitude: 37.78, longitude: -122.41)
+        ctx.insert(place)
+        try ctx.save()
+
+        _ = await QuickCaptureService.logCapture(
+            coordinate: CLLocation(latitude: 37.78, longitude: -122.41),
+            photoAssetId: "asset-cascade",
+            now: Date(),
+            in: ctx
+        )
+
+        let visits = try ctx.fetch(FetchDescriptor<Visit>())
+        XCTAssertEqual(visits.count, 1)
+        let visit = try XCTUnwrap(visits.first)
+        ctx.delete(visit)
+        try ctx.save()
+
+        let remainingEntries = try ctx.fetch(FetchDescriptor<JournalEntry>())
+        XCTAssertEqual(remainingEntries.count, 0, "JournalEntry should cascade-delete with its linked Visit")
     }
 
     func testLogCaptureMergesIntoActiveVisit() async throws {
@@ -171,5 +195,6 @@ final class QuickCaptureServiceTests: XCTestCase {
         XCTAssertEqual(entries.count, 1)
         XCTAssertEqual(entries.first?.id, journalEntryID)
         XCTAssertEqual(entries.first?.photoAssetIdentifiers, ["asset-456"])
+        XCTAssertEqual(entries.first?.visit?.id, intoVisitID)
     }
 }
