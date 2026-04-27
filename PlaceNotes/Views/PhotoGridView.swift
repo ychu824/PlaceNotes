@@ -3,6 +3,9 @@ import SwiftUI
 struct PhotoGridView: View {
     let photoFilenames: [String]
     var onRemove: ((String) -> Void)?
+    var onContextDelete: ((String) -> Void)?
+
+    @State private var presentedPhoto: PresentedPhoto?
 
     private let columns = [
         GridItem(.flexible(), spacing: 4),
@@ -15,25 +18,96 @@ struct PhotoGridView: View {
         } else {
             LazyVGrid(columns: columns, spacing: 4) {
                 ForEach(photoFilenames, id: \.self) { filename in
-                    PhotoThumbnailView(filename: filename)
-                        .aspectRatio(1, contentMode: .fit)
-                        .clipped()
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                        .overlay(alignment: .topTrailing) {
-                            if let onRemove {
-                                Button {
-                                    onRemove(filename)
-                                } label: {
-                                    Image(systemName: "xmark.circle.fill")
-                                        .font(.title3)
-                                        .symbolRenderingMode(.palette)
-                                        .foregroundStyle(.white, .black.opacity(0.5))
-                                }
-                                .padding(6)
-                            }
-                        }
+                    thumbnail(for: filename)
                 }
             }
+            .fullScreenCover(item: $presentedPhoto) { photo in
+                FullScreenPhotoView(filename: photo.id)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func thumbnail(for filename: String) -> some View {
+        let thumb = PhotoThumbnailView(filename: filename)
+            .aspectRatio(1, contentMode: .fit)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .overlay(alignment: .topTrailing) {
+                if let onRemove {
+                    Button {
+                        onRemove(filename)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(.white, .black.opacity(0.5))
+                    }
+                    .padding(6)
+                }
+            }
+
+        // Tappable when there's no inline X badge (i.e., outside the editor).
+        let tappable = Group {
+            if onRemove == nil {
+                Button {
+                    presentedPhoto = PresentedPhoto(id: filename)
+                } label: {
+                    thumb
+                }
+                .buttonStyle(.plain)
+            } else {
+                thumb
+            }
+        }
+
+        if let onContextDelete {
+            tappable.contextMenu {
+                Button(role: .destructive) {
+                    onContextDelete(filename)
+                } label: {
+                    Label("Delete Photo", systemImage: "trash")
+                }
+            }
+        } else {
+            tappable
+        }
+    }
+}
+
+private struct PresentedPhoto: Identifiable {
+    let id: String
+}
+
+private struct FullScreenPhotoView: View {
+    let filename: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                ProgressView().tint(.white)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, .black.opacity(0.5))
+            }
+            .padding()
+        }
+        .onAppear {
+            image = PhotoStorage.loadImage(filename: filename)
         }
     }
 }
@@ -96,5 +170,12 @@ enum PhotoStorage {
     static func deleteImage(filename: String) {
         let url = photosDirectory.appendingPathComponent(filename)
         try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Removes the entire JournalPhotos directory. Used by Settings → Clear All Data
+    /// since SwiftData cascade-deletes the entries but can't reach the disk.
+    static func deleteAll() {
+        let dir = photosDirectory
+        try? FileManager.default.removeItem(at: dir)
     }
 }

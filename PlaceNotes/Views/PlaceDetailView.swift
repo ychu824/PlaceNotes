@@ -59,7 +59,7 @@ struct PlaceDetailView: View {
         .alert("Delete Entry?", isPresented: $showDeleteConfirmation) {
             Button("Delete", role: .destructive) {
                 if let entry = entryToDelete {
-                    modelContext.delete(entry)
+                    JournalEntryDeletion.delete(entry, in: modelContext)
                     try? modelContext.save()
                     entryToDelete = nil
                 }
@@ -143,10 +143,16 @@ struct PlaceDetailView: View {
 
     private var photosSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Photos")
-                .font(.headline)
+            HStack {
+                Text("Photos")
+                    .font(.headline)
+                Spacer()
+                Text("\(allPhotoFilenames.count)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
 
-            PhotoGridView(photoFilenames: Array(allPhotoFilenames.prefix(6)))
+            PhotoGridView(photoFilenames: allPhotoFilenames)
         }
     }
 
@@ -198,15 +204,25 @@ struct PlaceDetailView: View {
 // MARK: - Journal Entry Card
 
 struct JournalEntryCard: View {
+    @Environment(\.modelContext) private var modelContext
     let entry: JournalEntry
     var onEdit: () -> Void
     var onDelete: () -> Void
+
+    @State private var pendingPhotoDelete: String?
+    @State private var showPhotoDeleteAlert = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Photos
             if !entry.photoAssetIdentifiers.isEmpty {
-                PhotoGridView(photoFilenames: entry.photoAssetIdentifiers)
+                PhotoGridView(
+                    photoFilenames: entry.photoAssetIdentifiers,
+                    onContextDelete: { filename in
+                        pendingPhotoDelete = filename
+                        showPhotoDeleteAlert = true
+                    }
+                )
             }
 
             // Title
@@ -252,5 +268,20 @@ struct JournalEntryCard: View {
         .padding()
         .background(Color(.systemGray6))
         .clipShape(RoundedRectangle(cornerRadius: 12))
+        .alert("Delete this photo?", isPresented: $showPhotoDeleteAlert) {
+            Button("Delete", role: .destructive) {
+                if let filename = pendingPhotoDelete {
+                    entry.photoAssetIdentifiers.removeAll { $0 == filename }
+                    PhotoStorage.deleteImage(filename: filename)
+                    try? modelContext.save()
+                    pendingPhotoDelete = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingPhotoDelete = nil
+            }
+        } message: {
+            Text("This photo will be permanently removed from this entry.")
+        }
     }
 }

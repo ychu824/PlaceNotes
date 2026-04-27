@@ -54,3 +54,9 @@ Pods/
 
 # Claude Code
 .claude/
+
+# Python cache
+__pycache__/
+
+# Superpowers (local docs/specs/plans, not part of the codebase)
+docs/superpowers/

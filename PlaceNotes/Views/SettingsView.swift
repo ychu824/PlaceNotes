@@ -255,6 +255,7 @@ struct SettingsView: View {
             modelContext.delete(category)
         }
         try? modelContext.save()
+        PhotoStorage.deleteAll()
     }
 
     private func refreshStorageSize() {

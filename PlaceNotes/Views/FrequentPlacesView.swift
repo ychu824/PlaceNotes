@@ -147,6 +147,7 @@ struct FrequentPlacesView: View {
     }
 
     private func deletePlace(_ place: Place) {
+        JournalEntryDeletion.cleanupPhotos(for: place)
         for visit in place.visits {
             modelContext.delete(visit)
         }
