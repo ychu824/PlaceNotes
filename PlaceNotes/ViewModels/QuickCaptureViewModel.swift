@@ -45,6 +45,7 @@ final class QuickCaptureViewModel: ObservableObject {
     private let oneShot: LocationOneShotProviding
     private let context: ModelContext
     private var pendingLiveFix: CLLocation?
+    private var locationFetchTask: Task<Void, Never>?
 
     init(oneShot: LocationOneShotProviding, context: ModelContext) {
         self.oneShot = oneShot
@@ -57,9 +58,12 @@ final class QuickCaptureViewModel: ObservableObject {
         guard state == .idle else { return }
         state = .acquiringLocation
         showCamera = true
-        Task { [weak self] in
+        locationFetchTask?.cancel()
+        oneShot.cancel()
+        locationFetchTask = Task { [weak self] in
             guard let self else { return }
             let loc = await self.oneShot.fetchOnce(timeout: 5)
+            if Task.isCancelled { return }
             await MainActor.run { self.pendingLiveFix = loc }
         }
     }
@@ -78,6 +82,8 @@ final class QuickCaptureViewModel: ObservableObject {
     }
 
     func cancelCapture() {
+        locationFetchTask?.cancel()
+        oneShot.cancel()
         pendingLiveFix = nil
         pendingPhotoAssetId = nil
         showCamera = false

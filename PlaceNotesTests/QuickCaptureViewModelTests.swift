@@ -9,6 +9,7 @@ final class QuickCaptureViewModelTests: XCTestCase {
     private final class StubOneShot: LocationOneShotProviding {
         var result: CLLocation?
         func fetchOnce(timeout: TimeInterval) async -> CLLocation? { result }
+        func cancel() {}
     }
 
     private func makeContext() throws -> ModelContext {

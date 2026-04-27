@@ -6,6 +6,7 @@ private let logger = Logger(subsystem: "com.placenotes.app", category: "Location
 
 protocol LocationOneShotProviding {
     func fetchOnce(timeout: TimeInterval) async -> CLLocation?
+    func cancel()
 }
 
 /// Wraps CLLocationManager.requestLocation() as an async call.
@@ -25,10 +26,12 @@ final class LocationOneShot: NSObject, LocationOneShotProviding, CLLocationManag
     }
 
     func fetchOnce(timeout: TimeInterval) async -> CLLocation? {
-        // Guard: don't pile up concurrent requests.
+        // If a previous request is still in flight (e.g., the user cancelled
+        // the camera before location returned), abort it so we don't refuse
+        // every subsequent capture.
         if continuation != nil {
-            logger.warning("fetchOnce called while a previous request is still pending")
-            return nil
+            logger.debug("aborting previous in-flight one-shot request")
+            resume(with: nil)
         }
         generation &+= 1
         let myGeneration = generation
@@ -39,6 +42,15 @@ final class LocationOneShot: NSObject, LocationOneShotProviding, CLLocationManag
                 try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
                 self.timeoutFired(generation: myGeneration)
             }
+        }
+    }
+
+    /// Resets any in-flight request so the next fetchOnce starts cleanly.
+    /// Called when the user cancels the camera mid-capture.
+    func cancel() {
+        if continuation != nil {
+            logger.debug("cancelling in-flight one-shot request")
+            resume(with: nil)
         }
     }
 
