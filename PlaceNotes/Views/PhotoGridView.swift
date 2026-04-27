@@ -5,6 +5,8 @@ struct PhotoGridView: View {
     var onRemove: ((String) -> Void)?
     var onContextDelete: ((String) -> Void)?
 
+    @State private var presentedPhoto: PresentedPhoto?
+
     private let columns = [
         GridItem(.flexible(), spacing: 4),
         GridItem(.flexible(), spacing: 4)
@@ -19,12 +21,15 @@ struct PhotoGridView: View {
                     thumbnail(for: filename)
                 }
             }
+            .fullScreenCover(item: $presentedPhoto) { photo in
+                FullScreenPhotoView(filename: photo.id)
+            }
         }
     }
 
     @ViewBuilder
     private func thumbnail(for filename: String) -> some View {
-        let view = PhotoThumbnailView(filename: filename)
+        let thumb = PhotoThumbnailView(filename: filename)
             .aspectRatio(1, contentMode: .fit)
             .clipped()
             .clipShape(RoundedRectangle(cornerRadius: 8))
@@ -42,8 +47,22 @@ struct PhotoGridView: View {
                 }
             }
 
+        // Tappable when there's no inline X badge (i.e., outside the editor).
+        let tappable = Group {
+            if onRemove == nil {
+                Button {
+                    presentedPhoto = PresentedPhoto(id: filename)
+                } label: {
+                    thumb
+                }
+                .buttonStyle(.plain)
+            } else {
+                thumb
+            }
+        }
+
         if let onContextDelete {
-            view.contextMenu {
+            tappable.contextMenu {
                 Button(role: .destructive) {
                     onContextDelete(filename)
                 } label: {
@@ -51,7 +70,44 @@ struct PhotoGridView: View {
                 }
             }
         } else {
-            view
+            tappable
+        }
+    }
+}
+
+private struct PresentedPhoto: Identifiable {
+    let id: String
+}
+
+private struct FullScreenPhotoView: View {
+    let filename: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                ProgressView().tint(.white)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title)
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.white, .black.opacity(0.5))
+            }
+            .padding()
+        }
+        .onAppear {
+            image = PhotoStorage.loadImage(filename: filename)
         }
     }
 }
