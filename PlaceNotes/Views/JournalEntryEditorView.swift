@@ -43,10 +43,13 @@ struct JournalEntryEditorView: View {
                                 .padding()
                         }
 
-                        PhotoGridView(photoFilenames: photoFilenames) { filename in
-                            photoFilenames.removeAll { $0 == filename }
-                            PhotoStorage.deleteImage(filename: filename)
-                        }
+                        PhotoGridView(
+                            photoFilenames: photoFilenames,
+                            onRemove: { filename in
+                                photoFilenames.removeAll { $0 == filename }
+                                PhotoStorage.deleteImage(filename: filename)
+                            }
+                        )
                     }
 
                     Divider()

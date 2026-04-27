@@ -4,6 +4,7 @@ import os
 
 private let logger = Logger(subsystem: "com.placenotes.app", category: "LocationOneShot")
 
+@MainActor
 protocol LocationOneShotProviding {
     func fetchOnce(timeout: TimeInterval) async -> CLLocation?
     func cancel()

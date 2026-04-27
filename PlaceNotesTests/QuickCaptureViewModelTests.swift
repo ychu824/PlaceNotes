@@ -6,6 +6,7 @@ import SwiftData
 @MainActor
 final class QuickCaptureViewModelTests: XCTestCase {
 
+    @MainActor
     private final class StubOneShot: LocationOneShotProviding {
         var result: CLLocation?
         func fetchOnce(timeout: TimeInterval) async -> CLLocation? { result }
