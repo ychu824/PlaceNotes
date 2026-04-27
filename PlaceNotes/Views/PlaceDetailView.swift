@@ -143,10 +143,16 @@ struct PlaceDetailView: View {
 
     private var photosSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Photos")
-                .font(.headline)
+            HStack {
+                Text("Photos")
+                    .font(.headline)
+                Spacer()
+                Text("\(allPhotoFilenames.count)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
 
-            PhotoGridView(photoFilenames: Array(allPhotoFilenames.prefix(6)))
+            PhotoGridView(photoFilenames: allPhotoFilenames)
         }
     }
 
