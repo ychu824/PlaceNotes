@@ -135,19 +135,27 @@ enum TrajectoryBuilder {
         }
     }
 
-    static func convertToPoints(
+    private static func convertToPoints(
         _ samples: [RawLocationSample],
         dayStart: Date
     ) -> [TrajectoryPoint] {
-        let dayLength: TimeInterval = 86_400
+        // Use the calendar to compute day length so DST transitions (23h or 25h
+        // local days) produce a normalizedTimeOfDay that doesn't drift past 1.
+        let nextDay = Calendar.current.date(byAdding: .day, value: 1, to: dayStart) ?? dayStart.addingTimeInterval(86_400)
+        let dayLength = nextDay.timeIntervalSince(dayStart)
+
         return samples.map { s in
             let raw = s.timestamp.timeIntervalSince(dayStart) / dayLength
             let normalized = min(1.0, max(0.0, raw))
+            // CoreLocation reports speed = -1 when unknown. v1 doesn't render
+            // speed, so coerce to 0; if the v2 .speed color mode lands, this
+            // should be revisited (likely promote speedMetersPerSecond to optional).
+            let speed = max(0, s.speed)
             return TrajectoryPoint(
                 coordinate: CLLocationCoordinate2D(latitude: s.latitude, longitude: s.longitude),
                 timestamp: s.timestamp,
                 normalizedTimeOfDay: normalized,
-                speedMetersPerSecond: max(0, s.speed)
+                speedMetersPerSecond: speed
             )
         }
     }
