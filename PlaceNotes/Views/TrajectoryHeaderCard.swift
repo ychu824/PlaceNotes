@@ -5,20 +5,29 @@ struct TrajectoryHeaderCard: View {
     let stats: TrajectoryStats?
     let isPathAvailable: Bool
 
-    private var dayString: String {
+    private static let dayFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .full
         f.timeStyle = .none
-        return f.string(from: day)
+        return f
+    }()
+
+    private static let distanceFormatter: MeasurementFormatter = {
+        let f = MeasurementFormatter()
+        f.unitOptions = .naturalScale
+        f.numberFormatter.maximumFractionDigits = 1
+        f.numberFormatter.minimumFractionDigits = 0
+        return f
+    }()
+
+    private var dayString: String {
+        Self.dayFormatter.string(from: day)
     }
 
     private var distanceString: String {
         guard let meters = stats?.totalDistanceMeters else { return "—" }
-        let formatter = MeasurementFormatter()
-        formatter.unitOptions = .naturalScale
-        formatter.numberFormatter.maximumFractionDigits = meters >= 1000 ? 1 : 0
         let measurement = Measurement(value: meters, unit: UnitLength.meters)
-        return formatter.string(from: measurement)
+        return Self.distanceFormatter.string(from: measurement)
     }
 
     private var summaryString: String {
