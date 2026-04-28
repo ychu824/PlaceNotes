@@ -6,7 +6,8 @@ struct TrajectoryPolyline: MapContent {
     let colorMode: TrajectoryColorMode
 
     var body: some MapContent {
-        ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+        ForEach(segments.indices, id: \.self) { idx in
+            let segment = segments[idx]
             ForEach(0..<max(0, segment.points.count - 1), id: \.self) { i in
                 let a = segment.points[i]
                 let b = segment.points[i + 1]
@@ -26,6 +27,7 @@ struct TrajectoryPolyline: MapContent {
             let mid = (a.normalizedTimeOfDay + b.normalizedTimeOfDay) / 2
             return Self.timeColor(normalized: mid)
         case .speed, .plain:
+            // Not implemented in v1; returns accent color so callers can switch modes without crashing.
             return .accentColor
         }
     }
