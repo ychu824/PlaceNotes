@@ -11,9 +11,21 @@ struct DayTrajectoryView: View {
     @State private var dayPlaces: [Place] = []
     @State private var selectedPlace: Place?
     @State private var cameraPosition: MapCameraPosition = .automatic
-    @State private var hasLoaded = false
+
+    private static let navTitleFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
 
     private var isPathAvailable: Bool { !segments.isEmpty }
+
+    private var dayRange: (start: Date, end: Date) {
+        let calendar = Calendar.current
+        let start = calendar.startOfDay(for: day)
+        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start.addingTimeInterval(86_400)
+        return (start, end)
+    }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -50,17 +62,13 @@ struct DayTrajectoryView: View {
             PlaceDetailSheet(place: place)
                 .presentationDetents([.medium])
         }
-        .task {
-            guard !hasLoaded else { return }
-            hasLoaded = true
+        .task(id: day) {
             await load()
         }
     }
 
     private var navTitle: String {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        return f.string(from: day)
+        Self.navTitleFormatter.string(from: day)
     }
 
     private var emptyOverlay: some View {
@@ -78,12 +86,10 @@ struct DayTrajectoryView: View {
     /// Build a synthetic ranking-per-place so we can reuse PlaceAnnotationView.
     /// `qualifiedStays` and `totalMinutes` here are scoped to this day only.
     private func rankings() -> [PlaceRanking] {
-        let calendar = Calendar.current
-        let dayStart = calendar.startOfDay(for: day)
-        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)!
+        let range = dayRange
         return dayPlaces.map { place in
             let visitsToday = place.visits.filter {
-                $0.arrivalDate >= dayStart && $0.arrivalDate < dayEnd
+                $0.arrivalDate >= range.start && $0.arrivalDate < range.end
             }
             let minutesToday = visitsToday.reduce(0) { $0 + $1.durationMinutes }
             return PlaceRanking(
@@ -95,9 +101,9 @@ struct DayTrajectoryView: View {
     }
 
     private func load() async {
-        let calendar = Calendar.current
-        let dayStart = calendar.startOfDay(for: day)
-        let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)!
+        let range = dayRange
+        let dayStart = range.start
+        let dayEnd = range.end
 
         let sampleDescriptor = FetchDescriptor<RawLocationSample>(
             predicate: #Predicate {
@@ -121,12 +127,10 @@ struct DayTrajectoryView: View {
             placeCount: placesToday.count
         )
 
-        await MainActor.run {
-            self.segments = builtSegments
-            self.dayPlaces = placesToday
-            self.stats = computedStats
-            self.cameraPosition = initialCamera(segments: builtSegments, places: placesToday)
-        }
+        self.segments = builtSegments
+        self.dayPlaces = placesToday
+        self.stats = computedStats
+        self.cameraPosition = initialCamera(segments: builtSegments, places: placesToday)
     }
 
     private func initialCamera(
@@ -136,17 +140,23 @@ struct DayTrajectoryView: View {
         var coords: [CLLocationCoordinate2D] = []
         coords.append(contentsOf: segments.flatMap { $0.points.map(\.coordinate) })
         coords.append(contentsOf: places.map(\.coordinate))
-        guard !coords.isEmpty else { return .automatic }
 
         let lats = coords.map(\.latitude)
         let lons = coords.map(\.longitude)
+        guard let minLat = lats.min(),
+              let maxLat = lats.max(),
+              let minLon = lons.min(),
+              let maxLon = lons.max() else {
+            return .automatic
+        }
+
         let center = CLLocationCoordinate2D(
-            latitude: (lats.min()! + lats.max()!) / 2,
-            longitude: (lons.min()! + lons.max()!) / 2
+            latitude: (minLat + maxLat) / 2,
+            longitude: (minLon + maxLon) / 2
         )
         let span = MKCoordinateSpan(
-            latitudeDelta: max(0.005, (lats.max()! - lats.min()!) * 1.4),
-            longitudeDelta: max(0.005, (lons.max()! - lons.min()!) * 1.4)
+            latitudeDelta: max(0.005, (maxLat - minLat) * 1.4),
+            longitudeDelta: max(0.005, (maxLon - minLon) * 1.4)
         )
         return .region(MKCoordinateRegion(center: center, span: span))
     }
