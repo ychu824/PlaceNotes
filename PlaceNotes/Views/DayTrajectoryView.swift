@@ -28,7 +28,7 @@ struct DayTrajectoryView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
+        ZStack {
             Map(position: $cameraPosition, selection: $selectedPlace) {
                 TrajectoryPolyline(segments: segments, colorMode: .time)
 
@@ -48,9 +48,33 @@ struct DayTrajectoryView: View {
                 MapScaleView()
             }
 
-            TrajectoryHeaderCard(day: day, stats: stats, isPathAvailable: isPathAvailable)
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+            VStack {
+                TrajectoryHeaderCard(day: day, stats: stats, isPathAvailable: isPathAvailable)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                Spacer()
+            }
+
+            VStack {
+                Spacer()
+                HStack {
+                    Spacer()
+                    Button {
+                        withAnimation {
+                            cameraPosition = initialCamera(segments: segments, places: dayPlaces)
+                        }
+                    } label: {
+                        Image(systemName: "scope")
+                            .font(.title3)
+                            .padding(12)
+                            .background(.regularMaterial)
+                            .clipShape(Circle())
+                            .shadow(radius: 2)
+                    }
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 24)
+                }
+            }
 
             if !isPathAvailable && dayPlaces.isEmpty {
                 emptyOverlay
@@ -124,6 +148,7 @@ struct DayTrajectoryView: View {
         let builtSegments = TrajectoryBuilder.build(samples: samples, day: day)
         let computedStats = TrajectoryBuilder.computeStats(
             segments: builtSegments,
+            rawSampleCount: samples.count,
             placeCount: placesToday.count
         )
 

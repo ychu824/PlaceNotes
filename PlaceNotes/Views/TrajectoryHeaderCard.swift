@@ -32,7 +32,7 @@ struct TrajectoryHeaderCard: View {
 
     private var summaryString: String {
         guard let stats else { return "" }
-        return "\(stats.placeCount) places · \(stats.sampleCount) samples"
+        return "\(stats.placeCount) places · \(stats.rawSampleCount) samples"
     }
 
     var body: some View {

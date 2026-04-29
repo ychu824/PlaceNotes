@@ -142,9 +142,9 @@ final class TrajectoryBuilderTests: XCTestCase {
     // MARK: - computeStats
 
     func testComputeStatsEmpty() {
-        let stats = TrajectoryBuilder.computeStats(segments: [], placeCount: 0)
+        let stats = TrajectoryBuilder.computeStats(segments: [], rawSampleCount: 0, placeCount: 0)
         XCTAssertEqual(stats.totalDistanceMeters, 0)
-        XCTAssertEqual(stats.sampleCount, 0)
+        XCTAssertEqual(stats.rawSampleCount, 0)
         XCTAssertEqual(stats.segmentCount, 0)
         XCTAssertEqual(stats.placeCount, 0)
     }
@@ -154,9 +154,9 @@ final class TrajectoryBuilderTests: XCTestCase {
             point(lat: 37.78000, lon: -122.41),
             point(lat: 37.78100, lon: -122.41)
         ])
-        let stats = TrajectoryBuilder.computeStats(segments: [seg], placeCount: 2)
+        let stats = TrajectoryBuilder.computeStats(segments: [seg], rawSampleCount: 2, placeCount: 2)
         XCTAssertEqual(stats.totalDistanceMeters, 111.32, accuracy: 1.0)
-        XCTAssertEqual(stats.sampleCount, 2)
+        XCTAssertEqual(stats.rawSampleCount, 2)
         XCTAssertEqual(stats.segmentCount, 1)
         XCTAssertEqual(stats.placeCount, 2)
     }
@@ -170,18 +170,18 @@ final class TrajectoryBuilderTests: XCTestCase {
             point(lat: 37.79000, lon: -122.41),
             point(lat: 37.79200, lon: -122.41)
         ])
-        let stats = TrajectoryBuilder.computeStats(segments: [seg1, seg2], placeCount: 3)
+        let stats = TrajectoryBuilder.computeStats(segments: [seg1, seg2], rawSampleCount: 4, placeCount: 3)
         XCTAssertEqual(stats.totalDistanceMeters, 333.96, accuracy: 2.0)
-        XCTAssertEqual(stats.sampleCount, 4)
+        XCTAssertEqual(stats.rawSampleCount, 4)
         XCTAssertEqual(stats.segmentCount, 2)
         XCTAssertEqual(stats.placeCount, 3)
     }
 
     func testComputeStatsSinglePointSegmentContributesZeroDistance() {
         let seg = TrajectorySegment(points: [point(lat: 37.78, lon: -122.41)])
-        let stats = TrajectoryBuilder.computeStats(segments: [seg], placeCount: 0)
+        let stats = TrajectoryBuilder.computeStats(segments: [seg], rawSampleCount: 1, placeCount: 0)
         XCTAssertEqual(stats.totalDistanceMeters, 0)
-        XCTAssertEqual(stats.sampleCount, 1)
+        XCTAssertEqual(stats.rawSampleCount, 1)
         XCTAssertEqual(stats.segmentCount, 1)
         XCTAssertEqual(stats.placeCount, 0)
     }

@@ -15,7 +15,7 @@ struct TrajectorySegment {
 
 struct TrajectoryStats {
     let totalDistanceMeters: Double
-    let sampleCount: Int
+    let rawSampleCount: Int
     let segmentCount: Int
     let placeCount: Int
 }

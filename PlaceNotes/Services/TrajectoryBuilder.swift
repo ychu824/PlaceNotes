@@ -93,13 +93,12 @@ enum TrajectoryBuilder {
 
     static func computeStats(
         segments: [TrajectorySegment],
+        rawSampleCount: Int,
         placeCount: Int
     ) -> TrajectoryStats {
         var totalDistance: Double = 0
-        var totalSamples = 0
 
         for segment in segments {
-            totalSamples += segment.points.count
             guard segment.points.count > 1 else { continue }
             for i in 1..<segment.points.count {
                 let a = segment.points[i - 1].coordinate
@@ -112,7 +111,7 @@ enum TrajectoryBuilder {
 
         return TrajectoryStats(
             totalDistanceMeters: totalDistance,
-            sampleCount: totalSamples,
+            rawSampleCount: rawSampleCount,
             segmentCount: segments.count,
             placeCount: placeCount
         )
