@@ -173,6 +173,27 @@ struct SettingsView: View {
                 Section("About") {
                     LabeledContent("Version", value: "1.0.0")
                 }
+
+                #if DEBUG
+                Section {
+                    Button("Seed Sample Trajectory") {
+                        DebugSeed.seedSampleTrajectories(in: modelContext)
+                        refreshRawSampleCount()
+                        refreshStorageSize()
+                    }
+                    Button(role: .destructive) {
+                        DebugSeed.clearAllData(in: modelContext)
+                        refreshRawSampleCount()
+                        refreshStorageSize()
+                    } label: {
+                        Text("Clear All Data (Debug)")
+                    }
+                } header: {
+                    Text("Debug")
+                } footer: {
+                    Text("Seeds 4 days of synthetic trajectory data anchored to today: golden path, samples-but-no-visits, visits-but-no-samples, and a >10 min phone-off gap. All samples marked accepted to demonstrate the feature.")
+                }
+                #endif
             }
             .navigationTitle("Settings")
             .alert("Delete All Data?", isPresented: $showClearDataConfirmation) {
