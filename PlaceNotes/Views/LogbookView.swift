@@ -10,6 +10,7 @@ struct LogbookView: View {
     @State private var visitToDelete: Visit?
     @State private var showDeleteConfirmation = false
     @State private var refreshID = UUID()
+    @State private var trajectoryDay: Date?
 
     private var groupedVisits: [(year: Int, months: [(month: Int, visits: [Visit])])] {
         let minStay = settings.minStayMinutes
@@ -63,6 +64,9 @@ struct LogbookView: View {
                                         onDelete: { visit in
                                             visitToDelete = visit
                                             showDeleteConfirmation = true
+                                        },
+                                        onShowTrajectory: { arrival in
+                                            trajectoryDay = Calendar.current.startOfDay(for: arrival)
                                         }
                                     )
                                 }
@@ -82,6 +86,9 @@ struct LogbookView: View {
                 }
             }
             .navigationTitle("Logbook")
+            .navigationDestination(item: $trajectoryDay) { day in
+                DayTrajectoryView(day: day)
+            }
             .sheet(item: $visitForAlternatives) { visit in
                 AlternativePlacePicker(visit: visit) {
                     refreshID = UUID()
@@ -289,6 +296,7 @@ private struct MonthSection: View {
     let visits: [Visit]
     var onPickAlternative: ((Visit) -> Void)?
     var onDelete: ((Visit) -> Void)?
+    var onShowTrajectory: ((Date) -> Void)?
 
     private var monthName: String {
         let formatter = DateFormatter()
@@ -319,6 +327,14 @@ private struct MonthSection: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                        Button {
+                            onShowTrajectory?(visit.arrivalDate)
+                        } label: {
+                            Label("Map", systemImage: "map")
+                        }
+                        .tint(.blue)
+                    }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button {
                             onDelete?(visit)
