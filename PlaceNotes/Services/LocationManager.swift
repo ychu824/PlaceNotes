@@ -29,6 +29,19 @@ struct StayCluster {
     var isAmbiguous: Bool { spreadMeters > 100 }
 }
 
+/// Plain-data representation of a location update queued for batch persistence.
+private struct PendingRawSample {
+    let latitude: Double
+    let longitude: Double
+    let timestamp: Date
+    let horizontalAccuracy: Double
+    let speed: Double
+    let altitude: Double?
+    let verticalAccuracy: Double?
+    let course: Double?
+    let filterStatus: String
+}
+
 final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let clManager = CLLocationManager()
     private var modelContext: ModelContext?
@@ -47,6 +60,11 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     private var lastRecordedDwellLocation: CLLocation?
     private var dwellTimer: Timer?
     private let settings: AppSettings
+
+    /// In-memory buffer of raw samples awaiting batch insert into SwiftData.
+    /// Flushed when the buffer fills, on the dwell-timer tick, or on stop.
+    private var pendingRawSamples: [PendingRawSample] = []
+    private let rawSampleBatchSize = 50
 
     /// Distance (meters) the user must move before we consider them "left".
     private let dwellRadiusMeters: Double = 80
@@ -74,7 +92,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         super.init()
         clManager.delegate = self
         clManager.allowsBackgroundLocationUpdates = true
-        clManager.pausesLocationUpdatesAutomatically = false
+        clManager.pausesLocationUpdatesAutomatically = true
+        clManager.activityType = .other
         clManager.desiredAccuracy = kCLLocationAccuracyBest
         clManager.distanceFilter = 10
         authorizationStatus = clManager.authorizationStatus
@@ -108,6 +127,7 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         clManager.stopUpdatingLocation()
         dwellTimer?.invalidate()
         dwellTimer = nil
+        flushRawSamples()
         finalizeDwell()
         logger.notice("All monitoring stopped")
     }
@@ -123,6 +143,8 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     private func checkDwellStatus() {
+        flushRawSamples()
+
         guard !dwellSamples.isEmpty,
               let start = dwellStartDate,
               let modelContext else {
@@ -260,24 +282,19 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
             filterStatus = "accepted"
         }
 
-        let lat = location.coordinate.latitude
-        let lon = location.coordinate.longitude
-        let ts = location.timestamp
-        let hAcc = location.horizontalAccuracy
-        let spd = location.speed
-        let alt = location.altitude
-        let vAcc = location.verticalAccuracy
-        let crs = location.course >= 0 ? location.course : nil
-
-        Task { @MainActor [weak self] in
-            guard let ctx = self?.modelContext else { return }
-            let raw = RawLocationSample(
-                latitude: lat, longitude: lon, timestamp: ts,
-                horizontalAccuracy: hAcc, speed: spd,
-                altitude: alt, verticalAccuracy: vAcc, course: crs,
-                filterStatus: filterStatus
-            )
-            ctx.insert(raw)
+        pendingRawSamples.append(PendingRawSample(
+            latitude: location.coordinate.latitude,
+            longitude: location.coordinate.longitude,
+            timestamp: location.timestamp,
+            horizontalAccuracy: location.horizontalAccuracy,
+            speed: location.speed,
+            altitude: location.altitude,
+            verticalAccuracy: location.verticalAccuracy,
+            course: location.course >= 0 ? location.course : nil,
+            filterStatus: filterStatus
+        ))
+        if pendingRawSamples.count >= rawSampleBatchSize {
+            flushRawSamples()
         }
 
         let sample = LocationSample(
@@ -330,6 +347,36 @@ final class LocationManager: NSObject, ObservableObject, CLLocationManagerDelega
         logger.error("Location error: \(error.localizedDescription)")
         if let clError = error as? CLError {
             logger.error("CLError code: \(clError.code.rawValue)")
+        }
+    }
+
+    // MARK: - Raw Sample Batching
+
+    private func flushRawSamples() {
+        guard !pendingRawSamples.isEmpty else { return }
+        let batch = pendingRawSamples
+        pendingRawSamples.removeAll(keepingCapacity: true)
+        Task { @MainActor [weak self] in
+            guard let ctx = self?.modelContext else { return }
+            for sample in batch {
+                ctx.insert(RawLocationSample(
+                    latitude: sample.latitude,
+                    longitude: sample.longitude,
+                    timestamp: sample.timestamp,
+                    horizontalAccuracy: sample.horizontalAccuracy,
+                    speed: sample.speed,
+                    altitude: sample.altitude,
+                    verticalAccuracy: sample.verticalAccuracy,
+                    course: sample.course,
+                    filterStatus: sample.filterStatus
+                ))
+            }
+            do {
+                try ctx.save()
+                logger.debug("Flushed \(batch.count) raw samples")
+            } catch {
+                logger.error("Failed to save raw sample batch: \(error.localizedDescription)")
+            }
         }
     }
 

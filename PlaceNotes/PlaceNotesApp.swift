@@ -3,9 +3,9 @@ import SwiftData
 
 @main
 struct PlaceNotesApp: App {
-    @StateObject private var settings = AppSettings.shared
-    @StateObject private var locationManager = LocationManager(settings: .shared)
-
+    let settings: AppSettings
+    let locationManager: LocationManager
+    let trackingManager: TrackingManager
     let modelContainer: ModelContainer
 
     init() {
@@ -28,29 +28,44 @@ struct PlaceNotesApp: App {
             return try ModelContainer(for: Place.self, Visit.self, CustomCategory.self, JournalEntry.self, RawLocationSample.self, configurations: config)
         }
 
+        let container: ModelContainer
         do {
-            modelContainer = try makeContainer()
+            container = try makeContainer()
         } catch {
             // Schema migration failed — delete the old store and retry.
             // This is expected when new model fields are added during development.
             print("[PlaceNotesApp] Store incompatible, resetting: \(error.localizedDescription)")
-            let fm = FileManager.default
-            for suffix in ["", "-wal", "-shm"] {
-                try? fm.removeItem(at: storeURL.appendingPathExtension(suffix.isEmpty ? "" : String(suffix.dropFirst())))
-                if suffix.isEmpty {
-                    try? fm.removeItem(at: storeURL)
-                } else {
-                    try? fm.removeItem(atPath: storeURL.path + suffix)
-                }
-            }
+            Self.deleteStoreFiles(at: storeURL)
             UserDefaults.standard.set(false, forKey: "mockDataSeeded_debug")
 
             do {
-                modelContainer = try makeContainer()
+                container = try makeContainer()
             } catch {
                 fatalError("Failed to create ModelContainer after reset: \(error)")
             }
         }
+        self.modelContainer = container
+
+        let settings = AppSettings.shared
+        self.settings = settings
+
+        // Wire up LocationManager with the model context in init() rather than
+        // onAppear so background-only relaunches via significant location changes
+        // (where the SwiftUI scene never appears) still persist samples and
+        // resume tracking.
+        let locationManager = LocationManager(settings: settings)
+        locationManager.configure(modelContext: container.mainContext)
+        locationManager.onVisitRecorded = { visit in
+            if let place = visit.place {
+                NotificationManager.shared.checkMilestone(for: place)
+            }
+        }
+        self.locationManager = locationManager
+
+        // TrackingManager.init -> checkPauseExpiry auto-resumes monitoring when
+        // the persisted state is .active, which is what makes background
+        // relaunches actually start collecting again.
+        self.trackingManager = TrackingManager(locationManager: locationManager, settings: settings)
     }
 
     var body: some Scene {
@@ -62,7 +77,6 @@ struct PlaceNotesApp: App {
                 .environmentObject(makeQuickCaptureViewModel())
                 .onAppear {
                     NotificationManager.shared.requestAuthorization()
-                    locationManager.configure(modelContext: modelContainer.mainContext)
                     Self.removeOldSharedStore()
 
                     #if DEBUG
@@ -71,6 +85,18 @@ struct PlaceNotesApp: App {
                 }
         }
         .modelContainer(modelContainer)
+    }
+
+    private static func deleteStoreFiles(at storeURL: URL) {
+        let fm = FileManager.default
+        let urls = [
+            storeURL,
+            URL(fileURLWithPath: storeURL.path + "-wal"),
+            URL(fileURLWithPath: storeURL.path + "-shm")
+        ]
+        for url in urls {
+            try? fm.removeItem(at: url)
+        }
     }
 
     /// One-time cleanup: remove the old shared `default.store` that was used
@@ -101,14 +127,6 @@ struct PlaceNotesApp: App {
 
     @MainActor
     private func makeTrackingViewModel() -> TrackingViewModel {
-        let trackingManager = TrackingManager(locationManager: locationManager, settings: settings)
-
-        locationManager.onVisitRecorded = { visit in
-            if let place = visit.place {
-                NotificationManager.shared.checkMilestone(for: place)
-            }
-        }
-
-        return TrackingViewModel(trackingManager: trackingManager)
+        TrackingViewModel(trackingManager: trackingManager)
     }
 }
